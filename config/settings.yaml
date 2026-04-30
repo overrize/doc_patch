@@ -1,0 +1,55 @@
+# Repair Manual Scraper - General Settings
+
+# Total download size limit (bytes)
+# 1 GB = 1,073,741,824 bytes
+total_size_limit: 1073741824
+
+# Rate limiting (requests per second per domain)
+rate_limit:
+  default: 1.0         # Default: 1 request/sec
+  ifixit.com: 1.0
+  samsung.com: 1.0
+  apple.com: 1.0
+  xiaomi.com: 1.0
+  mi.com: 1.0
+
+# Request settings
+request:
+  timeout: 30          # seconds
+  max_retries: 3
+  retry_delay: 5       # seconds between retries
+  user_agent: "RepairManualBot/1.0 (Educational purposes; contact@example.com)"
+
+# Session / resume
+session:
+  state_file: "config/state.json"
+  autosave_interval: 60  # seconds
+
+# Content filters
+content:
+  # Minimum guide word count to keep
+  min_guide_words: 50
+  # File types to download
+  allowed_extensions:
+    - .html
+    - .pdf
+    - .jpg
+    - .jpeg
+    - .png
+    - .gif
+    - .webp
+  # Max individual file size (bytes) - skip huge files
+  max_file_size: 52428800  # 50 MB
+
+# LLM configuration (optional, for product matching)
+llm:
+  enabled: true
+  provider: "deepseek"  # Provider name as configured in OpenCode
+  model: "deepseek-chat"
+  # Only use LLM when title/URL matching is ambiguous
+  min_confidence_threshold: 0.7
+
+# Logging
+logging:
+  level: "INFO"
+  file: "manuals/scraper.log"

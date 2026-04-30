@@ -1,0 +1,67 @@
+# Platform configurations for repair guide sources
+
+platforms:
+  ifixit:
+    name: "iFixit"
+    base_url: "https://www.ifixit.com"
+    api:
+      guide_list: "https://www.ifixit.com/api/2.0/wikis/CATEGORY"
+      guide_detail: "https://www.ifixit.com/Guide/{guide_id}"
+      image_base: "https://guide-images.cdn.ifixit.com"
+    categories:
+      phone: "Phone"
+      tablet: "Tablet"
+      laptop: "Laptop"
+      smartwatch: "Smartwatch"
+    enabled: true
+
+  fccid:
+    name: "FCC ID Database"
+    base_url: "https://fccid.io"
+    description: "FCC filings often include internal photos and teardown info"
+    enabled: true
+
+  fcc_report:
+    name: "FCC Report"
+    base_url: "https://fcc.report"
+    description: "Alternative FCC data with better search"
+    enabled: false  # Redundant with fccid
+
+  repair_wiki:
+    name: "Repair Wiki"
+    base_url: "https://repair.wiki"
+    enabled: true
+
+  samsung_parts:
+    name: "Samsung Parts"
+    base_url: "https://www.samsungparts.com"
+    enabled: true
+
+  apple_self_repair:
+    name: "Apple Self Service Repair"
+    base_url: "https://support.apple.com/self-service-repair"
+    manual_base: "https://manuals.info.apple.com"
+    enabled: true
+
+  xiaomi_service:
+    name: "Xiaomi Service"
+    base_url: "https://www.mi.com/global/service"
+    enabled: true
+
+  techwalls:
+    name: "TechWalls Teardowns"
+    base_url: "https://www.techwalls.com"
+    description: "Phone teardown guides with detailed photos"
+    enabled: true
+
+  gsmarena:
+    name: "GSMArena"
+    base_url: "https://www.gsmarena.com"
+    description: "Phone specifications for product matching"
+    enabled: false  # For reference only, not scraping
+
+  notebookcheck:
+    name: "Notebookcheck"
+    base_url: "https://www.notebookcheck.net"
+    description: "Detailed laptop reviews and teardowns"
+    enabled: true

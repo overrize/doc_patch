@@ -1,0 +1,78 @@
+# Target Products for Repair Manual Scraping
+# Each product has keywords for matching from scraped content
+
+Apple:
+  - name: "iPhone 15 Pro Max"
+    keywords: ["iphone 15 pro max", "a2849", "a3101", "a3102", "a3104"]
+  - name: "iPhone 15 Pro"
+    keywords: ["iphone 15 pro", "a2848", "a3101", "a3102", "a3104"]
+  - name: "iPhone 15"
+    keywords: ["iphone 15", "a2846", "a3089", "a3090", "a3092"]
+  - name: "iPhone 14 Pro Max"
+    keywords: ["iphone 14 pro max", "a2651", "a2893", "a2894", "a2895"]
+  - name: "iPhone 14 Pro"
+    keywords: ["iphone 14 pro", "a2650", "a2889", "a2890", "a2891"]
+  - name: "iPhone 14"
+    keywords: ["iphone 14", "a2649", "a2881", "a2882", "a2883"]
+  - name: "iPhone 13 Pro Max"
+    keywords: ["iphone 13 pro max", "a2484", "a2641", "a2644"]
+  - name: "iPhone 13"
+    keywords: ["iphone 13", "a2482", "a2631", "a2634"]
+  - name: "iPhone SE (3rd gen)"
+    keywords: ["iphone se 3", "iphone se 2022", "a2595", "a2782"]
+  - name: "iPhone 12"
+    keywords: ["iphone 12", "a2172", "a2402", "a2404"]
+  - name: "MacBook Air M3"
+    keywords: ["macbook air m3", "a3113", "a3114"]
+  - name: "MacBook Pro M3"
+    keywords: ["macbook pro m3", "a3112", "a2991"]
+  - name: "iPad Pro M4"
+    keywords: ["ipad pro m4", "a2836", "a2837"]
+  - name: "Apple Watch Ultra 2"
+    keywords: ["apple watch ultra 2", "a2986"]
+
+Samsung:
+  - name: "Galaxy S24 Ultra"
+    keywords: ["galaxy s24 ultra", "sm-s928", "s928u", "s928b"]
+  - name: "Galaxy S24+"
+    keywords: ["galaxy s24+", "galaxy s24 plus", "sm-s926", "s926u"]
+  - name: "Galaxy S24"
+    keywords: ["galaxy s24", "sm-s921", "s921u"]
+  - name: "Galaxy S23 Ultra"
+    keywords: ["galaxy s23 ultra", "sm-s918", "s918u"]
+  - name: "Galaxy S23+"
+    keywords: ["galaxy s23+", "galaxy s23 plus", "sm-s916", "s916u"]
+  - name: "Galaxy S23"
+    keywords: ["galaxy s23", "sm-s911", "s911u"]
+  - name: "Galaxy Z Fold 5"
+    keywords: ["galaxy z fold 5", "sm-f946", "f946u"]
+  - name: "Galaxy Z Flip 5"
+    keywords: ["galaxy z flip 5", "sm-f731", "f731u"]
+  - name: "Galaxy A54"
+    keywords: ["galaxy a54", "sm-a546"]
+  - name: "Galaxy A35"
+    keywords: ["galaxy a35", "sm-a356"]
+  - name: "Galaxy Tab S9"
+    keywords: ["galaxy tab s9", "sm-x710", "sm-x716"]
+
+Xiaomi:
+  - name: "Xiaomi 14 Pro"
+    keywords: ["xiaomi 14 pro", "2311drk48c", "2311drk48g"]
+  - name: "Xiaomi 14"
+    keywords: ["xiaomi 14", "23127pn0cc", "23127pn0cg"]
+  - name: "Xiaomi 13 Pro"
+    keywords: ["xiaomi 13 pro", "2210132g", "2210132c"]
+  - name: "Xiaomi 13"
+    keywords: ["xiaomi 13", "2211133g", "2211133c"]
+  - name: "Xiaomi 12 Pro"
+    keywords: ["xiaomi 12 pro", "2201122g", "2201122c"]
+  - name: "Redmi Note 13 Pro"
+    keywords: ["redmi note 13 pro", "2312crabo", "2312drab3g"]
+  - name: "Redmi Note 13"
+    keywords: ["redmi note 13", "2312drabc"]
+  - name: "POCO F6 Pro"
+    keywords: ["poco f6 pro", "23113rkc6g"]
+  - name: "Xiaomi Pad 6"
+    keywords: ["xiaomi pad 6", "23043rp34g"]
+  - name: "Redmi Pad SE"
+    keywords: ["redmi pad se", "23073rpbfc"]
