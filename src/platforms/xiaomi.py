@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Xiaomi repair guide scraper adapter.
 
 Discovers and scrapes repair guides from:

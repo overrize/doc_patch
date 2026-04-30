@@ -8,6 +8,8 @@ Uses HTML scraping via html.parser (no external deps).
 Downloads PDF repair guides when available.
 """
 
+from __future__ import annotations
+
 import logging
 from html.parser import HTMLParser
 from typing import Optional

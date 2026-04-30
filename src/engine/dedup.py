@@ -3,7 +3,7 @@
 import hashlib
 from typing import Optional
 
-from .types import CrawlState
+from ..types import CrawlState
 
 
 def content_hash(data: bytes) -> str:
