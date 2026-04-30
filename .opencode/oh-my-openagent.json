@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/oh-my-opencode.schema.json",
+  "agents": {
+    "sisyphus": { "model": "deepseek/deepseek-chat" },
+    "prometheus": { "model": "deepseek/deepseek-reasoner" },
+    "oracle": { "model": "deepseek/deepseek-reasoner" },
+    "hephaestus": { "model": "deepseek/deepseek-chat" },
+    "explore": { "model": "deepseek/deepseek-chat" },
+    "librarian": { "model": "deepseek/deepseek-chat" },
+    "metis": { "model": "deepseek/deepseek-chat" },
+    "momus": { "model": "deepseek/deepseek-chat" },
+    "atlas": { "model": "deepseek/deepseek-chat" },
+    "sisyphus-junior": { "model": "deepseek/deepseek-chat" }
+  },
+  "categories": {
+    "ultrabrain": { "model": "deepseek/deepseek-reasoner" },
+    "deep": { "model": "deepseek/deepseek-chat" },
+    "visual-engineering": { "model": "deepseek/deepseek-chat" },
+    "artistry": { "model": "deepseek/deepseek-chat" },
+    "quick": { "model": "deepseek/deepseek-chat" },
+    "unspecified-low": { "model": "deepseek/deepseek-chat" },
+    "unspecified-high": { "model": "deepseek/deepseek-reasoner" },
+    "writing": { "model": "deepseek/deepseek-chat" }
+  }
+}
