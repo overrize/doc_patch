@@ -2,6 +2,7 @@
 
 import logging
 import time
+import traceback
 from pathlib import Path
 from typing import Optional
 
@@ -41,29 +42,54 @@ class ScraperEngine:
         self.start_time: float = 0
         self.paused: bool = False
 
-    def setup(self):
-        """Initialize all components from configuration."""
+    def setup(self, size_override: Optional[int] = None, brands: Optional[list[str]] = None):
+        """Initialize all components from configuration.
+        
+        Args:
+            size_override: Override total_size_limit from config (bytes)
+            brands: Filter products to only these brands (e.g. ['apple', 'samsung'])
+        """
         log.info("Loading configuration...")
         self.config = load_settings(self.config_dir)
         self.products = load_products(self.config_dir)
+        
+        # Filter by brands if specified
+        if brands:
+            brands_lower = [b.lower() for b in brands]
+            self.products = [p for p in self.products if p.brand.lower() in brands_lower]
+            if not self.products:
+                available = sorted(set(p.brand for p in load_products(self.config_dir)))
+                raise ValueError(f"No products match brands: {brands}. Available: {available}")
+            log.info(f"Filtered to {len(self.products)} products from brands: {brands}")
+        
         self.platforms_config = load_platforms(self.config_dir)
+        
+        # Size override
+        effective_size = size_override if size_override else self.config.total_size_limit
         
         # Initialize product lookup for LLM classifier
         init_product_lookup(self.products)
         
-        # Setup logging
+        # Setup logging with traceback support
+        log_format = '%(asctime)s [%(levelname)s] %(name)s:%(lineno)d: %(message)s'
+        error_log = self.config.output_dir / "errors.log"
         logging.basicConfig(
             level=getattr(logging, self.config.log_level),
-            format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+            format=log_format,
             handlers=[
                 logging.FileHandler(self.config.log_file),
+                logging.FileHandler(error_log),
                 logging.StreamHandler(),
             ]
         )
+        # errors.log only gets WARNING+
+        for handler in logging.getLogger().handlers:
+            if hasattr(handler, 'baseFilename') and 'errors.log' in handler.baseFilename:
+                handler.setLevel(logging.WARNING)
         
         # Initialize components
         self.rate_limiter = RateLimiter(self.config)
-        self.size_tracker = SizeTracker(self.config.total_size_limit, self.config.state_file)
+        self.size_tracker = SizeTracker(effective_size, self.config.state_file)
         self.session_manager = SessionManager(self.config.state_file, self.config.autosave_interval)
         self.queue = URLQueue()
         self.organizer = ContentOrganizer(self.config.output_dir)
@@ -141,7 +167,7 @@ class ScraperEngine:
                             self.queue.add(url, platform_enum, priority=5)
                     log.debug(f"Discovered {len(guide_urls)} URLs for {product.name} on {platform_name}")
                 except Exception as e:
-                    log.warning(f"Discovery failed for {product.name} on {platform_name}: {e}")
+                    log.warning(f"Discovery failed for {product.name} on {platform_name}: {e}", exc_info=True)
         
         log.info(f"Queue seeded with {self.queue.remaining_count()} URLs")
 
@@ -193,8 +219,8 @@ class ScraperEngine:
                     return 0
                 
                 # Check size budget
-                if not self.size_tracker.can_add(guide_item.size_bytes):
-                    log.info("Size limit reached, stopping.")
+                if not self.size_tracker.can_add(guide_item.size_bytes, guide_item.title):
+                    log.warning(f"Size limit reached — skipping: {guide_item.title} ({format_size(guide_item.size_bytes)})")
                     return 0
                 
                 # Save guide
@@ -206,7 +232,7 @@ class ScraperEngine:
                 image_items = adapter.scrape_images(guide_item, guide_item.matched_product)
                 for img_item in image_items:
                     if img_item.content_bytes:
-                        if not self.size_tracker.can_add(img_item.size_bytes):
+                        if not self.size_tracker.can_add(img_item.size_bytes, img_item.title):
                             break
                         saved = self.organizer.save_item(img_item)
                         bytes_saved += saved
@@ -220,14 +246,19 @@ class ScraperEngine:
             self.session_manager.state.total_items_scraped += 1
             
         except Exception as e:
-            log.error(f"Error processing {url}: {e}")
+            log.error(f"Error processing {url}: {e}", exc_info=True)
             mark_visited(self.session_manager.state, url)
         
         return bytes_saved
 
-    def run(self):
-        """Main crawl loop."""
-        self.setup()
+    def run(self, size_override: Optional[int] = None, brands: Optional[list[str]] = None):
+        """Main crawl loop.
+        
+        Args:
+            size_override: Override config's total_size_limit (bytes)
+            brands: Only scrape these brands (e.g. ['apple', 'samsung'])
+        """
+        self.setup(size_override=size_override, brands=brands)
         self.seed_products()
         
         log.info(f"Starting crawl. Queue: {self.queue.remaining_count()} URLs")
@@ -269,14 +300,29 @@ class ScraperEngine:
                  f"{items_this_session} items this session, "
                  f"took {int(elapsed)}s")
         
+        # Warn if items were skipped due to size limit
+        if self.size_tracker.skipped_files:
+            log.warning(
+                f"Size limit too small — {len(self.size_tracker.skipped_files)} items skipped "
+                f"(need ~{format_size(self.size_tracker.skipped_total_bytes)} more). "
+                f"Try a larger limit next time."
+            )
+            for fname, size in self.size_tracker.skipped_files[:5]:
+                log.warning(f"  Skipped: {fname} ({format_size(size)})")
+        
         return index
 
     def get_status(self) -> dict:
         """Get current crawler status for CLI display."""
         return {
-            'downloaded': format_size(self.size_tracker.downloaded),
-            'remaining': format_size(self.size_tracker.remaining),
-            'usage_percent': self.size_tracker.usage_percent,
-            'queue_size': self.queue.remaining_count(),
+            'downloaded': format_size(self.size_tracker.downloaded if self.size_tracker else 0),
+            'limit': format_size(self.size_tracker.max_bytes if self.size_tracker else 0),
+            'remaining': format_size(self.size_tracker.remaining if self.size_tracker else 0),
+            'usage_percent': self.size_tracker.usage_percent if self.size_tracker else 0,
+            'queue_size': self.queue.remaining_count() if self.queue else 0,
             'elapsed': int(time.time() - self.start_time) if self.start_time else 0,
+            'skipped_count': len(self.size_tracker.skipped_files) if self.size_tracker else 0,
+            'skipped_bytes': format_size(self.size_tracker.skipped_total_bytes) if self.size_tracker else '0 B',
+            'skipped_files': self.size_tracker.skipped_files[-5:] if self.size_tracker else [],
+            'brands': sorted(set(p.brand for p in self.products)) if self.products else [],
         }

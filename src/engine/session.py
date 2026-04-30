@@ -3,6 +3,7 @@
 import json
 import time
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -34,12 +35,15 @@ class SessionManager:
         """Load crawl state from disk."""
         with open(self.state_file, 'r', encoding='utf-8') as f:
             raw = json.load(f)
+        started_str = raw.get('started_at', '')
+        started_at = datetime.fromisoformat(started_str) if started_str else datetime.now()
         state = CrawlState(
             total_bytes_downloaded=raw.get('total_bytes_downloaded', 0),
             total_items_scraped=raw.get('total_items_scraped', 0),
             urls_visited=set(raw.get('urls_visited', [])),
             content_hashes=set(raw.get('content_hashes', [])),
             queue_remaining=raw.get('queue_remaining', []),
+            started_at=started_at,
         )
         self._state = state
         return state
@@ -49,7 +53,7 @@ class SessionManager:
         if self._state is None:
             return
         with self._lock:
-            self._state.last_updated = time.time()
+            self._state.last_updated = datetime.now()
             data = {
                 'total_bytes_downloaded': self._state.total_bytes_downloaded,
                 'total_items_scraped': self._state.total_items_scraped,

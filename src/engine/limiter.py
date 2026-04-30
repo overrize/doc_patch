@@ -46,13 +46,15 @@ class RateLimiter:
 
 
 class SizeTracker:
-    """Tracks total downloaded bytes and enforces size limit."""
+    """Tracks total downloaded bytes, enforces size limit, logs skips."""
 
     def __init__(self, max_bytes: int, state_file: Path):
         self.max_bytes = max_bytes
         self.state_file = state_file
         self._downloaded = 0
         self._lock = threading.Lock()
+        self.skipped_files: list[tuple[str, int]] = []  # (filename, bytes_needed)
+        self.skipped_total_bytes: int = 0
 
     @property
     def downloaded(self) -> int:
@@ -70,9 +72,16 @@ class SizeTracker:
     def usage_percent(self) -> float:
         return (self._downloaded / self.max_bytes) * 100 if self.max_bytes else 0
 
-    def can_add(self, size: int) -> bool:
-        """Check if adding this many bytes would exceed the limit."""
-        return self._downloaded + size <= self.max_bytes
+    def can_add(self, size: int, filename: str = "") -> bool:
+        """Check if adding this many bytes would exceed the limit.
+        
+        If it would exceed, records the skip for reporting.
+        """
+        ok = self._downloaded + size <= self.max_bytes
+        if not ok and filename:
+            self.skipped_files.append((filename, size))
+            self.skipped_total_bytes += size
+        return ok
 
     def add(self, size: int):
         """Record downloaded bytes."""

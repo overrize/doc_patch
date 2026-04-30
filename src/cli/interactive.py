@@ -1,6 +1,5 @@
 """Interactive terminal UI for the repair manual scraper."""
 
-import sys
 import time
 from pathlib import Path
 
@@ -8,149 +7,151 @@ from ..engine.scraper import ScraperEngine
 from ..storage.filesystem import format_size
 
 
+_AVAILABLE_BRANDS = {"apple", "samsung", "xiaomi", "all"}
+
+
 class InteractiveCLI:
     """Interactive terminal interface for manual scraper control."""
 
     def __init__(self):
         self.engine = ScraperEngine(Path("config"))
+        self.engine.setup()
         self.running = False
 
     def print_banner(self):
         print(r"""
-╔══════════════════════════════════════════════════════╗
-║        Repair Manual Scraper v0.1.0                  ║
-║        Phone Repair Documentation Crawler            ║
-╚══════════════════════════════════════════════════════╝
+  Repair Manual Scraper v0.2.0
+  Phone Repair Documentation Crawler
+
+  Usage: start <brand> [size]   e.g. start apple 200MB
+         brands                  list available brands
+         status                  show progress
+         stop / resume           pause / continue
+         help / quit
         """)
 
     def print_help(self):
         print("""
 Commands:
-  setup       Initialize scraper and load configuration
-  start       Begin scraping all configured platforms
-  status      Show current progress (downloaded, queue, etc.)
-  platforms   List configured platforms and their status
-  products    List target products
-  index       Show collected content by product
-  stop        Pause the scraper (saves state for resume)
-  resume      Resume from last saved state
-  limit       Show/set size limit
-  quit        Exit the program
+  start <brand> [size]   Begin scraping. brand: apple|samsung|xiaomi|all (or comma-sep)
+                         size: e.g. 200MB, 500MB, 1GB (default: 1GB)
+  brands                 List available brands
+  status                 Show progress + size usage + skip warnings
+  stop                   Pause and save state
+  resume                 Continue from last saved state
+  quit                   Exit
 
 Examples:
-  > setup
-  > start
+  > start apple 200MB
+  > start samsung,xiaomi 500MB
+  > start all
   > status
         """)
 
-    def cmd_setup(self):
-        """Initialize the scraper engine."""
-        print("Initializing scraper...")
+    def _parse_size(self, s: str) -> int:
+        """Parse size string like '200MB', '1GB' to bytes."""
+        s = s.strip().upper()
+        multipliers = {'B': 1, 'KB': 1024, 'MB': 1024**2, 'GB': 1024**3}
+        for unit, mult in sorted(multipliers.items(), key=lambda x: -x[1]):
+            if s.endswith(unit):
+                try:
+                    return int(float(s[:-len(unit)]) * mult)
+                except ValueError:
+                    pass
         try:
-            self.engine.setup()
-            print(f"[OK] {len(self.engine.products)} products loaded")
-            print(f"[OK] {len(self.engine.platforms_config)} platforms configured")
-            print(f"[OK] Size limit: {format_size(self.engine.size_tracker.max_bytes)}")
-            print(f"[OK] Output: {self.engine.config.output_dir}")
-        except Exception as e:
-            print(f"[ERROR] Setup failed: {e}")
+            return int(s)  # raw bytes
+        except ValueError:
+            raise ValueError(f"Invalid size: '{s}'. Use 200MB, 1GB, etc.")
 
-    def cmd_start(self):
-        """Start the crawling process."""
+    def cmd_start(self, args: list[str]):
+        """Start the crawling process.
+        
+        args[0]: brand (apple, samsung, xiaomi, all, or comma-sep)
+        args[1]: size (optional, e.g. 200MB)
+        """
         if self.running:
-            print("Scraper is already running!")
+            print("Scraper is already running! Use 'stop' first.")
             return
         
-        print(f"Starting crawl...")
-        print(f"Target: {self.engine.size_tracker.max_bytes / 1024 / 1024:.0f} MB limit")
-        print(f"Products: {len(self.engine.products)}")
-        print(f"Platforms: {len(self.engine.platforms_config)}")
+        if not args:
+            print("Usage: start <brand> [size]")
+            print("  brand: apple, samsung, xiaomi, all (or comma-separated)")
+            print("  size:  200MB, 500MB, 1GB (optional, default: 1GB)")
+            return
+        
+        brand_arg = args[0].lower().strip()
+        
+        # Parse brand
+        if brand_arg == 'all':
+            brands = None
+        else:
+            brands = [b.strip() for b in brand_arg.split(',')]
+            invalid = [b for b in brands if b not in _AVAILABLE_BRANDS and b != 'all']
+            if invalid:
+                print(f"Unknown brand(s): {', '.join(invalid)}")
+                print(f"Available: {', '.join(sorted(_AVAILABLE_BRANDS))} + all")
+                return
+        
+        # Parse size
+        size_override = None
+        if len(args) >= 2:
+            try:
+                size_override = self._parse_size(args[1])
+            except ValueError as e:
+                print(f"[ERROR] {e}")
+                return
+        
+        size_str = format_size(size_override) if size_override else format_size(self.engine.config.total_size_limit)
+        brand_str = ', '.join(brands) if brands else 'all'
+        
+        print(f"Starting: brands={brand_str}, limit={size_str}")
         print("-" * 50)
         
         self.running = True
         try:
-            index = self.engine.run()
+            index = self.engine.run(size_override=size_override, brands=brands)
             self.running = False
             print("-" * 50)
             print("Crawl complete!")
             self._print_index_summary(index)
+            self._print_skip_warnings()
         except KeyboardInterrupt:
-            print("\n[PAUSED] Crawl interrupted. State saved for resume.")
+            print("\n[PAUSED] State saved. Use 'resume' to continue.")
+            self.running = False
+        except ValueError as e:
+            print(f"\n[ERROR] {e}")
             self.running = False
         except Exception as e:
             print(f"\n[ERROR] {e}")
+            print("Check manuals/errors.log for details.")
             self.running = False
 
     def cmd_status(self):
-        """Show current progress."""
+        """Show current progress with skip warnings."""
         status = self.engine.get_status()
+        brands_str = ', '.join(status['brands']) if status.get('brands') else 'all'
         print(f"""
 === Scraper Status ===
-Downloaded:  {status['downloaded']}
-Remaining:   {status['remaining']} of 1 GB
-Progress:    {status['usage_percent']:.1f}%
+Brands:      {brands_str}
+Downloaded:  {status['downloaded']} / {status['limit']} ({status['usage_percent']:.1f}%)
 Queue:       {status['queue_size']} URLs pending
 Elapsed:     {status['elapsed']} seconds
-Running:     {'Yes' if self.running else 'No'}
         """.strip())
-
-    def cmd_platforms(self):
-        """List configured platforms."""
-        print("\n=== Configured Platforms ===")
-        for name, cfg in self.engine.platforms_config.items():
-            status = "ENABLED" if cfg.get('enabled', True) else "DISABLED"
-            print(f"  [{status}] {cfg.get('name', name):20s} - {cfg.get('base_url', 'N/A')}")
-        print()
-
-    def cmd_products(self):
-        """List target products."""
-        print("\n=== Target Products ===")
-        brands = {}
-        for p in self.engine.products:
-            if p.brand not in brands:
-                brands[p.brand] = []
-            brands[p.brand].append(p.name)
         
-        for brand, names in brands.items():
-            print(f"\n  {brand}:")
-            for name in sorted(names):
-                print(f"    - {name}")
-        print(f"\n  Total: {len(self.engine.products)} products")
+        if status.get('skipped_count', 0) > 0:
+            print(f"\n[WARN] {status['skipped_count']} items skipped — need ~{status['skipped_bytes']} more")
+            print("  Try: start <brand> <larger_size>")
+            for fname, size in status.get('skipped_files', [])[:3]:
+                print(f"  - {fname} ({format_size(size)})")
 
-    def cmd_index(self):
-        """Show collected content index."""
-        try:
-            index = self.engine.organizer.build_index()
-            self._print_index_summary(index)
-        except Exception as e:
-            print(f"[ERROR] Cannot build index: {e}")
-
-    def _print_index_summary(self, index: dict):
-        """Print a summary of collected content."""
-        if not index:
-            print("No content collected yet.")
-            return
-        
-        print("\n=== Collected Content ===")
-        total_guides = 0
-        total_images = 0
-        total_manuals = 0
-        
-        for brand, products in index.items():
-            print(f"\n  [{brand}]")
-            for prod_name, categories in products.items():
-                readable_name = prod_name.replace('_', ' ')
-                guides = categories.get('guides', {}).get('count', 0)
-                images = categories.get('images', {}).get('count', 0)
-                manuals = categories.get('manuals', {}).get('count', 0)
-                
-                if guides or images or manuals:
-                    print(f"    {readable_name}: {guides} guides, {images} images, {manuals} manuals")
-                    total_guides += guides
-                    total_images += images
-                    total_manuals += manuals
-        
-        print(f"\n  Total: {total_guides} guides, {total_images} images, {total_manuals} manuals")
+    def cmd_brands(self):
+        """List available brands."""
+        print("\n=== Available Brands ===")
+        print("  apple    — iPhone 12–17, MacBook, iPad, Apple Watch")
+        print("  samsung  — Galaxy S22–S25, Z Fold/Flip, A series")
+        print("  xiaomi   — Xiaomi 12–15, Redmi Note, POCO")
+        print("  all      — Everything above")
+        print("\nAdd more in config/products.yaml")
 
     def cmd_stop(self):
         """Pause the scraper."""
@@ -168,64 +169,82 @@ Running:     {'Yes' if self.running else 'No'}
             print("Already running!")
             return
         print("Resuming from saved state...")
-        self.cmd_start()
+        self.engine.running = False  # Reset to allow restart
+        self.cmd_start([])  # Re-run with same params
 
-    def cmd_limit(self, args: list[str] = None):
-        """Show or change the size limit."""
-        if args:
-            try:
-                new_limit_mb = float(args[0])
-                new_limit_bytes = int(new_limit_mb * 1024 * 1024)
-                self.engine.size_tracker.max_bytes = new_limit_bytes
-                print(f"Size limit set to {new_limit_mb} MB")
-            except ValueError:
-                print("Usage: limit <megabytes>")
-        else:
-            print(f"Current limit: {format_size(self.engine.size_tracker.max_bytes)}")
-            print(f"Remaining: {format_size(self.engine.size_tracker.remaining)}")
+    def _print_index_summary(self, index: dict):
+        """Print a summary of collected content."""
+        if not index:
+            print("No content collected yet.")
+            return
+        
+        print("\n=== Collected Content ===")
+        total_guides = 0
+        total_images = 0
+        total_manuals = 0
+        
+        for brand, products in index.items():
+            if brand.startswith('_'):
+                continue
+            print(f"\n  [{brand}]")
+            for prod_name, categories in products.items():
+                readable_name = prod_name.replace('_', ' ')
+                guides = categories.get('guides', {}).get('count', 0)
+                images = categories.get('images', {}).get('count', 0)
+                manuals = categories.get('manuals', {}).get('count', 0)
+                
+                if guides or images or manuals:
+                    print(f"    {readable_name}: {guides} guides, {images} images, {manuals} manuals")
+                    total_guides += guides
+                    total_images += images
+                    total_manuals += manuals
+        
+        print(f"\n  Total: {total_guides} guides, {total_images} images, {total_manuals} manuals")
+
+    def _print_skip_warnings(self):
+        """Print warnings about skipped items."""
+        if self.engine.size_tracker and self.engine.size_tracker.skipped_files:
+            count = len(self.engine.size_tracker.skipped_files)
+            need = format_size(self.engine.size_tracker.skipped_total_bytes)
+            print(f"\n[WARN] Size limit too small — {count} items skipped (need ~{need} more)")
+            print(f"  Try a larger limit next time: start <brand> <size>")
+            for fname, size in self.engine.size_tracker.skipped_files[:5]:
+                print(f"  - {fname} ({format_size(size)})")
 
     def run_interactive(self):
         """Main interactive loop."""
         self.print_banner()
-        print("Type 'help' for commands, 'quit' to exit.")
-        print("\nQuick start: type 'setup' then 'start'")
         
         while True:
             try:
-                cmd = input("\nscraper> ").strip().lower()
+                cmd = input("\nscraper> ").strip()
                 
                 if not cmd:
                     continue
                 
-                if cmd == 'quit' or cmd == 'exit':
+                parts = cmd.split()
+                verb = parts[0].lower()
+                args = parts[1:] if len(parts) > 1 else []
+                
+                if verb in ('quit', 'exit'):
                     if self.running:
-                        print("Stopping scraper...")
                         self.cmd_stop()
                     print("Goodbye!")
                     break
-                elif cmd == 'help':
+                elif verb == 'help':
                     self.print_help()
-                elif cmd == 'setup':
-                    self.cmd_setup()
-                elif cmd == 'start':
-                    self.cmd_start()
-                elif cmd == 'status':
+                elif verb == 'start':
+                    self.cmd_start(args)
+                elif verb == 'status':
                     self.cmd_status()
-                elif cmd == 'platforms':
-                    self.cmd_platforms()
-                elif cmd == 'products':
-                    self.cmd_products()
-                elif cmd == 'index':
-                    self.cmd_index()
-                elif cmd == 'stop':
+                elif verb == 'brands':
+                    self.cmd_brands()
+                elif verb == 'stop':
                     self.cmd_stop()
-                elif cmd == 'resume':
+                elif verb == 'resume':
                     self.cmd_resume()
-                elif cmd.startswith('limit'):
-                    parts = cmd.split()[1:]
-                    self.cmd_limit(parts if parts else None)
                 else:
-                    print(f"Unknown command: '{cmd}'. Type 'help' for available commands.")
+                    print(f"Unknown: '{verb}'. Type 'help'.")
                     
             except KeyboardInterrupt:
                 print("\nUse 'stop' to pause, 'quit' to exit.")
