@@ -1,86 +1,156 @@
 # Repair Manual Scraper
 
-多平台手机维修手册爬虫 - 自动从 iFixit、Samsung、Apple、Xiaomi 等平台爬取维修指南和说明书。
+多平台手机维修手册爬虫 — 从 iFixit、Samsung、Apple、Xiaomi 自动爬取维修指南和说明书，按品牌/产品分类存储。
 
-## 功能
+## 前置条件
 
-- **多平台支持**: iFixit API、Samsung Self-Repair、Apple Self Service Repair、Xiaomi Support
-- **智能产品匹配**: 关键字匹配 + LLM 辅助分类
-- **按产品组织**: `品牌/产品名/guides|images|manuals` 清晰结构
-- **1GB 大小限制**: 自动追踪并暂停
-- **断点续传**: 中断后可恢复
-- **交互式终端**: 实时查看进度、管理任务
-
-## 目录结构
-
-```
-doc_patch/
-├── src/                    # 爬虫源代码
-│   ├── main.py             # 入口
-│   ├── engine/             # 核心引擎
-│   │   ├── scraper.py      # 主编排器
-│   │   ├── queue.py        # URL 队列
-│   │   ├── dedup.py        # 去重
-│   │   ├── limiter.py      # 限速 + 大小追踪
-│   │   └── session.py      # 断点保存
-│   ├── platforms/          # 平台适配器
-│   │   ├── base.py         # 基类
-│   │   ├── ifixit.py       # iFixit
-│   │   ├── samsung.py      # Samsung
-│   │   ├── apple.py        # Apple
-│   │   └── xiaomi.py       # Xiaomi
-│   ├── storage/            # 文件存储
-│   │   ├── organizer.py    # 按产品组织
-│   │   └── filesystem.py   # 文件 I/O
-│   ├── llm/                # LLM 辅助
-│   │   └── classifier.py   # 产品分类
-│   └── cli/                # 终端界面
-│       └── interactive.py  # 交互式 CLI
-├── config/                 # 配置文件
-│   ├── settings.yaml       # 通用设置
-│   ├── products.yaml       # 目标产品列表
-│   └── platforms.yaml      # 平台配置
-├── manuals/                # 爬取结果 (不提交)
-│   ├── Apple/
-│   │   └── iPhone_15_Pro/
-│   │       ├── guides/     # 文字维修指南
-│   │       ├── images/     # 维修图片
-│   │       └── manuals/    # PDF 手册
-│   ├── Samsung/
-│   └── Xiaomi/
-└── requirements.txt
-```
+| 工具 | 版本 | 安装 |
+|------|------|------|
+| **Git** | 2.x+ | [git-scm.com](https://git-scm.com/download/win) |
+| **Python** | 3.9+ | [python.org](https://www.python.org/downloads/) |
+| **pip** | 随 Python | 安装时勾选 "Add Python to PATH" |
+| **OpenCode** | 1.14+ | `npm install -g opencode-ai` |
 
 ## 快速开始
 
-```bash
+### 1. 克隆 & 安装环境
+
+```powershell
+# Windows PowerShell
+git clone git@github.com:overrize/doc_patch.git
+cd doc_patch
+
+# 创建虚拟环境（推荐）
+python -m venv .venv
+.venv\Scripts\activate
+
 # 安装依赖
 pip install -r requirements.txt
+```
 
-# 交互式模式
+### 2. 在 OpenCode 中使用（推荐）
+
+```bash
+# 在项目根目录启动 opencode
+opencode
+
+# 输入命令，agent 自动执行爬取
+/scrape-manuals apple 200MB
+/scrape-manuals samsung,xiaomi 500MB
+/scrape-manuals all
+```
+
+`/scrape-manuals` 告诉 AI agent 调用 Python 脚本，不需要手动输入交互命令。
+
+### 3. 直接使用 Python（备选）
+
+```bash
+# 交互模式
 python -m src.main
 
-# 进入后:
-scraper> setup      # 初始化
-scraper> platforms  # 查看平台
-scraper> products   # 查看目标产品
-scraper> start      # 开始爬取
-scraper> status     # 查看进度
-scraper> stop       # 暂停 (保存状态)
-scraper> resume     # 继续
-scraper> index      # 查看收集的内容
-scraper> quit       # 退出
+# 进入后
+scraper> start apple 200MB
+scraper> status
+scraper> stop
+scraper> quit
+```
+
+## 可用品牌
+
+| 命令参数 | 覆盖产品 |
+|----------|----------|
+| `apple` | iPhone 12–17, MacBook M3/M4, iPad Pro, Apple Watch |
+| `samsung` | Galaxy S22–S25, Z Fold/Flip 4–6, A 系列 |
+| `xiaomi` | Xiaomi 12–15, Redmi Note, POCO |
+| `all` | 以上全部 |
+
+## 爬取结果
+
+```
+manuals/
+├── Apple/
+│   ├── iPhone_15_Pro/
+│   │   ├── guides/      # HTML 维修指南文字
+│   │   ├── images/      # 维修步骤图片
+│   │   └── manuals/     # PDF 维修手册
+│   └── iPhone_14/
+│       └── ...
+├── Samsung/
+│   └── Galaxy_S24_Ultra/
+│       └── ...
+└── Xiaomi/
+    └── Xiaomi_14_Pro/
+        └── ...
 ```
 
 ## 配置
 
-### 修改目标产品
-编辑 `config/products.yaml`，按 Apple/Samsung/Xiaomi 分类添加产品名称和搜索关键词。
+### 添加品牌/产品
+
+编辑 `config/products.yaml`：
+
+```yaml
+# 添加新品牌只需加一个顶层 key
+Huawei:
+  - name: "Pura 70 Pro"
+    keywords: ["pura 70 pro", "hbp-al00"]
+  - name: "Pura 70 Ultra"
+    keywords: ["pura 70 ultra", "hbp-al10"]
+```
 
 ### 修改大小限制
-`config/settings.yaml` 中的 `total_size_limit` (字节)，默认 1GB。
 
-### LLM 辅助分类
-在 `config/settings.yaml` 中启用 `llm.enabled: true`，配置 `llm.provider` 和 `llm.model`。
+`config/settings.yaml` 第 5 行：
 
-当前默认使用 DeepSeek API (与 OpenCode 共用配置)。
+```yaml
+total_size_limit: 1073741824  # 1GB = 1073741824 字节
+```
+
+也可以在 `start` 命令中覆盖：`start apple 200MB`
+
+### LLM 辅助产品匹配
+
+在 `config/settings.yaml` 中启用，当关键词匹配失败时使用 LLM 识别产品：
+
+```yaml
+llm:
+  enabled: true
+  provider: "deepseek"
+  model: "deepseek-chat"
+```
+
+## 项目结构
+
+```
+doc_patch/
+├── .opencode/                # OpenCode 命令定义
+│   └── commands/
+│       └── scrape-manuals.md # /scrape-manuals 命令
+├── src/                      # 爬虫源码
+│   ├── main.py               # 入口
+│   ├── engine/               # 核心引擎 (队列/去重/限速/会话)
+│   ├── platforms/            # 4 个平台适配器
+│   ├── storage/              # 文件组织
+│   ├── llm/                  # LLM 分类器
+│   └── cli/                  # 交互终端
+├── config/                   # 配置
+│   ├── settings.yaml         # 通用设置 (size, 限速, LLM)
+│   ├── products.yaml         # 目标产品列表
+│   └── platforms.yaml        # 平台配置
+├── manuals/                  # 爬取结果 (gitignore)
+├── requirements.txt
+└── README.md
+```
+
+## 常见问题
+
+**Q: 爬取中途断了怎么办？**
+状态自动保存到 `config/state.json`，重新 `start` 即可续传。
+
+**Q: 为什么有些产品没爬到？**
+检查 `config/platforms.yaml` 确认平台已启用。部分平台可能因网络/反爬返回空结果。
+
+**Q: 想加新平台（如华为）？**
+1. 在 `config/platforms.yaml` 添加平台配置
+2. 在 `src/platforms/` 创建新的 adapter 类
+3. 在 `src/engine/scraper.py` 的 `_get_adapter()` 注册
