@@ -128,32 +128,38 @@ class SamsungScraper(BasePlatformScraper):
     # ------------------------------------------------------------------
 
     def discover_guides(self, product: Product) -> list[str]:
-        """Search Samsung sources for repair guide URLs matching *product*."""
+        """Search Samsung + iFixit for repair guide URLs.
+
+        Samsung's site is JS-rendered, so headless browser is tried first.
+        As reliable fallback, iFixit API is used since it covers Samsung devices.
+        """
         if product is None:
             return []
         keywords = product.keywords if product.keywords else [product.name]
         discovered: list[str] = []
 
-        # --- 1. Samsung support search ---
-        for keyword in keywords:
-            try:
-                urls = self._search_samsung_support(keyword)
-                discovered.extend(urls)
-            except Exception as exc:
-                log.warning("Samsung support search failed for %r: %s", keyword, exc)
+        # --- 1. iFixit fallback (primary — covers Samsung reliably) ---
+        try:
+            from .ifixit import IFixitScraper
+            ifixit = IFixitScraper(self.config, self.rate_limiter)
+            ifixit_urls = ifixit.discover_guides(product)
+            discovered.extend(ifixit_urls)
+            log.info("iFixit found %d guides for %s", len(ifixit_urls), product.name)
+        except Exception as exc:
+            log.warning("iFixit fallback failed: %s", exc)
 
-        # --- 2. Samsung Parts self-repair page ---
+        # --- 2. Samsung Parts self-repair page (headless, fallback to static) ---
         try:
             urls = self._scrape_self_repair_page()
-            # Filter to pages mentioning *any* keyword
             for url in urls:
                 if self._url_matches_product(url, product):
                     discovered.append(url)
         except Exception as exc:
-            log.warning("Samsung Parts self-repair check failed: %s", exc)
+            log.warning("Samsung Parts check failed: %s", exc)
 
-        # Deduplicate while keeping discovery order
         unique = list(dict.fromkeys(discovered))
+        log.info("Discovered %d Samsung guide URL(s) for %s", len(unique), product.name)
+        return unique
         log.info("Discovered %d Samsung guide URL(s) for %s", len(unique), product.name)
         return unique
 

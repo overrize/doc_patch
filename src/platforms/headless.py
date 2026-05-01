@@ -1,8 +1,10 @@
 """Headless browser wrapper for JS-rendered repair guide sites.
 
-Uses Playwright to render pages that static HTTP scraping can't handle
-(e.g., samsung.com, apple.com support pages). Falls back gracefully if
-Playwright/Chromium is not installed.
+Uses Playwright to connect to system-installed browsers (Edge/Chrome).
+No `playwright install chromium` needed — Windows always has Edge,
+and Chrome is common on dev machines.
+
+Fallback: static HTTP request when no browser is available.
 """
 
 import logging
@@ -11,23 +13,48 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 _HEADLESS_AVAILABLE: Optional[bool] = None
+_ACTIVE_CHANNEL: Optional[str] = None  # "msedge", "chrome", or None
 _BROWSER = None  # singleton
 
 
+# Try in order: system Edge (always on Windows), system Chrome, Playwright Chromium
+_BROWSER_CHANNELS = [
+    ("msedge", "system Microsoft Edge"),
+    ("chrome", "system Google Chrome"),
+    (None, "Playwright Chromium (install: playwright install chromium)"),
+]
+
+
 def is_available() -> bool:
-    """Check if Playwright + Chromium are installed and ready."""
-    global _HEADLESS_AVAILABLE
+    """Check if any headless browser is available."""
+    global _HEADLESS_AVAILABLE, _ACTIVE_CHANNEL
     if _HEADLESS_AVAILABLE is not None:
         return _HEADLESS_AVAILABLE
     try:
         from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            p.chromium.launch(headless=True).close()
-        _HEADLESS_AVAILABLE = True
-    except Exception as e:
-        log.warning("Headless browser unavailable: %s", e)
+    except ImportError:
+        log.warning("Headless: playwright not installed. Run: pip install playwright")
         _HEADLESS_AVAILABLE = False
-    return _HEADLESS_AVAILABLE
+        return False
+
+    for channel, desc in _BROWSER_CHANNELS:
+        try:
+            with sync_playwright() as p:
+                if channel:
+                    p.chromium.launch(channel=channel, headless=True).close()
+                else:
+                    p.chromium.launch(headless=True).close()
+            _HEADLESS_AVAILABLE = True
+            _ACTIVE_CHANNEL = channel
+            log.info("Headless browser ready: %s", desc)
+            return True
+        except Exception:
+            log.debug("Headless channel %s unavailable", channel or "default")
+            continue
+
+    log.warning("No headless browser found. Install: playwright install chromium")
+    _HEADLESS_AVAILABLE = False
+    return False
 
 
 def get_browser():
@@ -39,10 +66,13 @@ def get_browser():
         return None
     from playwright.sync_api import sync_playwright
     pw = sync_playwright().start()
-    _BROWSER = pw.chromium.launch(
-        headless=True,
-        args=['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
-    )
+    launch_args = {
+        "headless": True,
+        "args": ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+    }
+    if _ACTIVE_CHANNEL:
+        launch_args["channel"] = _ACTIVE_CHANNEL
+    _BROWSER = pw.chromium.launch(**launch_args)
     return _BROWSER
 
 
@@ -58,17 +88,7 @@ def close_browser():
 
 
 def render(url: str, wait_selector: str = "body", timeout_ms: int = 15000) -> Optional[str]:
-    """Render a JS-heavy page and return its full HTML.
-
-    Args:
-        url: The page URL to load.
-        wait_selector: CSS selector to wait for before extracting HTML.
-        timeout_ms: Max wait time for the selector.
-
-    Returns:
-        Rendered HTML string, or None if headless browser is unavailable
-        or the page fails to load.
-    """
+    """Render a JS-heavy page and return its full HTML."""
     browser = get_browser()
     if browser is None:
         return None
@@ -83,11 +103,11 @@ def render(url: str, wait_selector: str = "body", timeout_ms: int = 15000) -> Op
                 "Chrome/125.0.0.0 Safari/537.36"
             ),
         })
-        page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
         try:
             page.wait_for_selector(wait_selector, timeout=timeout_ms // 2)
         except Exception:
-            pass  # selector may not exist, that's OK
+            pass
 
         html = page.content()
         page.close()
@@ -98,15 +118,7 @@ def render(url: str, wait_selector: str = "body", timeout_ms: int = 15000) -> Op
 
 
 def extract_links(html: str, base_url: str = "") -> list[str]:
-    """Extract all <a href> links from HTML.
-
-    Args:
-        html: Rendered HTML content.
-        base_url: Optional base URL for resolving relative links.
-
-    Returns:
-        List of absolute or relative URLs.
-    """
+    """Extract all <a href> links from HTML."""
     import re
     from urllib.parse import urljoin
     links = re.findall(r'<a[^>]+href=["\']([^"\']+)["\']', html, re.IGNORECASE)

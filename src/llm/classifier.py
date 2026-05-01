@@ -54,7 +54,7 @@ def match_by_keywords(title: str, content: str, products: list[Product]) -> Opti
             best_score = score
             best_match = product
     
-    return best_match if best_score >= 2 else None
+    return best_match if best_score >= 1 else None
 
 
 def llm_classify(
