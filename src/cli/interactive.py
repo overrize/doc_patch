@@ -178,6 +178,14 @@ class RichTUI:
         size_override = size_mb * 1024 * 1024 if size_mb else None
         self.engine.setup(size_override=size_override, brands=brands)
 
+        # Suppress console log output during TUI — keep file handlers only
+        import logging
+        root = logging.getLogger()
+        old_handlers = list(root.handlers)
+        for h in old_handlers:
+            if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
+                root.removeHandler(h)
+
         try:
             with Live(self._build_layout(), console=self.console, refresh_per_second=4,
                       screen=True, transient=False) as live:
@@ -263,6 +271,10 @@ class RichTUI:
             self._log_lines.append(f"[ERROR] {e}")
         finally:
             self.running = False
+            # Restore original log handlers
+            for h in old_handlers:
+                if h not in root.handlers:
+                    root.addHandler(h)
 
 
 # ── Fallback simple CLI (no rich) ────────────────────────────────────
