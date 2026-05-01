@@ -4,8 +4,8 @@ Discovers and scrapes Samsung repair guides from:
 - samsung.com support search (repair guides, manuals)
 - samsungparts.com Self-Repair program (Encompass partner)
 
-Uses HTML scraping via html.parser (no external deps).
-Downloads PDF repair guides when available.
+Uses headless browser (Playwright) for JS-rendered pages, with static
+fallback when headless is not available.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from urllib.parse import urljoin, quote_plus
 
 from ..types import ScrapedItem, ContentType, Platform, Product
 from .base import BasePlatformScraper
+from . import headless
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +132,7 @@ class SamsungScraper(BasePlatformScraper):
         if product is None:
             return []
         keywords = product.keywords if product.keywords else [product.name]
+        discovered: list[str] = []
 
         # --- 1. Samsung support search ---
         for keyword in keywords:
@@ -156,13 +158,21 @@ class SamsungScraper(BasePlatformScraper):
         return unique
 
     def _search_samsung_support(self, keyword: str) -> list[str]:
-        """Hit the samsung.com support search endpoint and extract result links."""
+        """Try headless browser first, fall back to static request."""
         query = f"{keyword} repair guide"
         search_url = SAMSUNG_SUPPORT_SEARCH.format(query=quote_plus(query))
-        resp = self._get(search_url)
+
+        html = None
+        if headless.is_available():
+            html = headless.render(search_url, wait_selector="a[href]")
+            if html:
+                log.debug("Samsung search rendered via headless browser")
+        if html is None:
+            resp = self._get(search_url)
+            html = self._get_text(resp)
 
         parser = _SamsungHTMLParser()
-        parser.feed(self._get_text(resp))
+        parser.feed(html)
 
         urls: list[str] = []
         for link in parser.links:
@@ -172,16 +182,23 @@ class SamsungScraper(BasePlatformScraper):
         return urls
 
     def _scrape_self_repair_page(self) -> list[str]:
-        """Pull all guide-like links from the Samsung Parts Self-Repair landing page."""
-        self.rate_limiter.wait(SAMSUNG_PARTS_DOMAIN)
-        resp = self.session.get(
-            SAMSUNG_PARTS_SELF_REPAIR,
-            timeout=self.config.request_timeout,
-        )
-        resp.raise_for_status()
+        """Pull guide links from Samsung Parts — headless first, static fallback."""
+        html = None
+        if headless.is_available():
+            html = headless.render(SAMSUNG_PARTS_SELF_REPAIR, wait_selector="a[href]")
+            if html:
+                log.debug("Samsung Parts rendered via headless browser")
+        if html is None:
+            self.rate_limiter.wait(SAMSUNG_PARTS_DOMAIN)
+            resp = self.session.get(
+                SAMSUNG_PARTS_SELF_REPAIR,
+                timeout=self.config.request_timeout,
+            )
+            resp.raise_for_status()
+            html = self._get_text(resp)
 
         parser = _SamsungHTMLParser()
-        parser.feed(self._get_text(resp))
+        parser.feed(html)
 
         urls: list[str] = []
         for link in parser.links:

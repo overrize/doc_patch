@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlparse
 
 from ..types import ScrapedItem, ContentType, Platform, Product
 from .base import BasePlatformScraper
+from . import headless
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ class AppleScraper(BasePlatformScraper):
         """Discover Apple repair manual TOC pages for a product."""
         if product is None:
             return []
+        urls: list[str] = []
         name_lower = product.name.lower().strip()
 
         # 1. Check known TOC ID mapping by product name
@@ -311,8 +313,15 @@ class AppleScraper(BasePlatformScraper):
                     'locale': 'en_US',
                     'currentPage': 1,
                 }
-                resp = self._get(APPLE_SEARCH_BASE, params=params)
-                html_text = resp.text
+                # Build search URL — try headless first, static fallback
+                import urllib.parse as _up
+                search_url = f"{APPLE_SEARCH_BASE}?{_up.urlencode(params)}"
+                html_text = None
+                if headless.is_available():
+                    html_text = headless.render(search_url, wait_selector="a[href]")
+                if html_text is None:
+                    resp = self._get(APPLE_SEARCH_BASE, params=params)
+                    html_text = self._get_text(resp)
 
                 # Find linked documentation pages:
                 #   href="/en-us/104900"
