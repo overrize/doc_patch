@@ -1,4 +1,4 @@
-"""Rich TUI for the repair manual scraper — live progress, keyboard control."""
+"""Rich-enhanced CLI for the repair manual scraper — progress, no screen takeover."""
 
 import sys
 import time
@@ -10,36 +10,31 @@ from ..engine.scraper import ScraperEngine
 from ..storage.filesystem import format_size
 
 try:
-    from rich.live import Live
-    from rich.panel import Panel
-    from rich.progress import BarColumn, Progress, TextColumn
-    from rich.console import Console, Group
+    from rich.console import Console
+    from rich.table import Table
     from rich.text import Text
-    from rich import box
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False
 
-_KEY_INPUT = None  # Thread-safe keyboard input
-_KEY_LOCK = threading.Lock()
 _WIN32 = sys.platform == 'win32'
-
 if _WIN32:
     import msvcrt
 else:
     import select
 
+_KEY_PRESSED = None
+_KEY_LOCK = threading.Lock()
+
 
 def _kb_listener():
-    """Background thread: read keyboard hits into _KEY_INPUT."""
-    global _KEY_INPUT
+    global _KEY_PRESSED
     while True:
         try:
             if _WIN32:
                 if msvcrt.kbhit():
-                    ch = msvcrt.getch().decode('utf-8', errors='replace').lower()
                     with _KEY_LOCK:
-                        _KEY_INPUT = ch
+                        _KEY_PRESSED = msvcrt.getch().decode('utf-8', errors='replace').lower()
             else:
                 import tty
                 import termios
@@ -48,9 +43,8 @@ def _kb_listener():
                 try:
                     tty.setraw(fd)
                     if select.select([sys.stdin], [], [], 0.1)[0]:
-                        ch = sys.stdin.read(1).lower()
                         with _KEY_LOCK:
-                            _KEY_INPUT = ch
+                            _KEY_PRESSED = sys.stdin.read(1).lower()
                 finally:
                     termios.tcsetattr(fd, termios.TCSADRAIN, old)
         except Exception:
@@ -58,254 +52,224 @@ def _kb_listener():
         time.sleep(0.05)
 
 
-def _read_key() -> Optional[str]:
-    """Read a single keystroke (non-blocking)."""
-    global _KEY_INPUT
+def _pop_key() -> Optional[str]:
+    global _KEY_PRESSED
     with _KEY_LOCK:
-        ch = _KEY_INPUT
-        _KEY_INPUT = None
-    return ch
+        k = _KEY_PRESSED
+        _KEY_PRESSED = None
+    return k
+
+
+def _elapsed_str(seconds: float) -> str:
+    m, s = divmod(int(seconds), 60)
+    return f"{m:02d}:{s:02d}"
 
 
 class RichTUI:
-    """Live-updating terminal UI using Rich."""
+    """Terminal UI with progress line, no screen takeover."""
 
     def __init__(self):
         self.engine = ScraperEngine(Path("config"))
+        self.console = Console() if HAS_RICH else None
         self.running = False
-        self.console = Console()
-        self._log_lines: list[str] = []
-        self._current_action = ""
-        self._current_brand = ""
-        self._brand_stats: dict[str, dict] = {}  # brand -> {guides, images, size}
-        self._total_items = 0
-        self._total_bytes = 0
         self._start_time = 0.0
-        self._listener_thread: Optional[threading.Thread] = None
+        self._items = 0
+        self._saved = 0
+        self._skipped = 0
+        self._brand_counts: dict[str, int] = {}
+        self._listener: Optional[threading.Thread] = None
 
-    # ------------------------------------------------------------------
-    #  Layout builder
-    # ------------------------------------------------------------------
-
-    def _build_layout(self) -> Panel:
-        """Build the TUI panel."""
-        elapsed = int(time.time() - self._start_time) if self._start_time else 0
-        m, s = divmod(elapsed, 60)
-
-        # ── Size progress bar ──
-        bar = Progress(
-            BarColumn(bar_width=40, style="green", complete_style="bright_green"),
-            TextColumn("[progress.percentage]{task.percentage:>4.0f}%"),
-        )
-        if self.engine.size_tracker:
-            used = self.engine.size_tracker.downloaded
-            limit = self.engine.size_tracker.max_bytes
-            _task = bar.add_task("size", total=limit or 1, completed=used)
-        else:
-            _task = bar.add_task("size", total=100, completed=0)
-            used, limit = 0, 0
-
-        # ── Header ──
+    def _print_header(self, brands_str: str, limit_str: str):
         header = Text.assemble(
-            ("Repair Manual Scraper v0.3.0\n", "bold cyan"),
-            (f"  {format_size(used)} / {format_size(limit) if limit else '?'}  ",
-             "dim"),
-        )
-
-        # ── Brand breakdown ──
-        brand_lines = []
-        if self._brand_stats:
-            brand_lines.append(Text("", style="dim"))
-            for brand, stats in sorted(self._brand_stats.items()):
-                count = stats.get('items', 0)
-                bsize = format_size(stats.get('size', 0))
-                brand_lines.append(
-                    Text(f"  {brand:8s}  {count:3d} items  {bsize:>8s}", style="green")
-                )
+            ("\nRepair Manual Scraper v0.3.0\n", "bold cyan"),
+            (f"Brands: {brands_str}   Limit: {limit_str}\n", "dim"),
+            ("[s] stop  [q] quit\n\n", "dim red"),
+        ) if self.console else ""
+        if self.console:
+            self.console.print(header)
         else:
-            brand_lines.append(Text("  Waiting for discovery...", style="dim"))
+            print("\nRepair Manual Scraper v0.3.0")
+            print(f"Brands: {brands_str}   Limit: {limit_str}")
+            print("[s] stop  [q] quit\n")
 
-        # ── Current action ──
-        action = Text(f"  {self._current_action or 'Starting...'}", style="yellow")
+    def _print_progress(self):
+        """One-line progress update."""
+        elapsed = _elapsed_str(time.time() - self._start_time)
+        size = format_size(self._saved)
+        limit = format_size(self.engine.size_tracker.max_bytes) if self.engine.size_tracker else "?"
+        pct = self.engine.size_tracker.usage_percent if self.engine.size_tracker else 0
 
-        # ── Log tail ──
-        log_text = Text()
-        for line in self._log_lines[-6:]:
-            log_text.append(f"  {line}\n", style="dim")
+        line = f"[{elapsed}]  {self._items} items  {size}/{limit} ({pct:.0f}%)"
 
-        # ── Footer ──
-        footer = Text.assemble(
-            ("\n", ""),
-            (f"  [{m:02d}:{s:02d}]", "dim"),
-            ("   [s] stop", "bold red"),
-            ("   [q] quit", "bold red"),
-        )
+        # Brand counts
+        if self._brand_counts:
+            parts = [f"{b}={c}" for b, c in sorted(self._brand_counts.items())]
+            line += f"  |  {'  '.join(parts)}"
 
-        body = Group(header, bar, *brand_lines, Text(""), action, Text(""), log_text, footer)
-        return Panel(body, box=box.ROUNDED, border_style="bright_black",
-                     title="[bold]REPAIR MANUAL SCRAPER[/]", title_align="left")
+        # Skipped
+        if self._skipped:
+            line += f"  |  skipped: {self._skipped}"
 
-    # ------------------------------------------------------------------
-    #  Run loop
-    # ------------------------------------------------------------------
+        if self.console:
+            self.console.print(Text(line, style="green"))
+        else:
+            print(line)
 
-    def _on_progress(self, url: str, platform: str, title: str, matched_product, bytes_saved: int):
-        """Callback from engine after each URL processed."""
-        self._total_items += 1
-        self._total_bytes += bytes_saved
-        self._current_action = title or url
+    def _print_final(self, index: dict):
+        """Print final summary table."""
+        t0 = time.time() - self._start_time
+        size = format_size(self._saved)
 
-        if matched_product:
-            brand = matched_product.brand
-            if brand not in self._brand_stats:
-                self._brand_stats[brand] = {'items': 0, 'size': 0}
-            self._brand_stats[brand]['items'] += 1
-            self._brand_stats[brand]['size'] += bytes_saved
+        if self.console:
+            table = Table(title="Results", box=None)
+            table.add_column("Brand", style="cyan")
+            table.add_column("Product", style="white")
+            table.add_column("Guides", justify="right")
+            table.add_column("Images", justify="right")
 
-        if bytes_saved:
-            self._log_lines.append(f"[OK] {title} ({format_size(bytes_saved)})")
-        elif title:
-            self._log_lines.append(f"[SKIP] {title}")
-        if len(self._log_lines) > 50:
-            self._log_lines = self._log_lines[-30:]
+            for brand, products in index.items():
+                if brand.startswith('_'):
+                    continue
+                for pname, cats in products.items():
+                    g = cats.get('guides', {}).get('count', 0)
+                    im = cats.get('images', {}).get('count', 0)
+                    if g or im:
+                        table.add_row(brand, pname.replace('_', ' '), str(g), str(im))
+
+            self.console.print()
+            self.console.print(table)
+            self.console.print(f"\n[bold]{self._items} items, {size}, {_elapsed_str(t0)}[/]")
+        else:
+            print(f"\nDone. {self._items} items, {size}, {_elapsed_str(t0)}")
+
+        # Skip warnings
+        if self.engine.size_tracker and self.engine.size_tracker.skipped_files:
+            n = len(self.engine.size_tracker.skipped_files)
+            need = format_size(self.engine.size_tracker.skipped_total_bytes)
+            msg = f"[WARN] {n} items skipped — need ~{need} more. Try a larger limit."
+            self.console.print(Text(msg, style="red")) if self.console else print(msg)
 
     def run(self, brands: Optional[list[str]] = None, size_mb: Optional[int] = None):
-        """Run scraping with TUI display."""
         self.running = True
         self._start_time = time.time()
 
-        # Re-setup with size/brand overrides
-        size_override = size_mb * 1024 * 1024 if size_mb else None
-        self.engine.setup(size_override=size_override, brands=brands)
-
-        # Suppress console log output during TUI — keep file handlers only
-        import logging
+        # Suppress console during engine setup
+        import logging, io
         root = logging.getLogger()
-        old_handlers = list(root.handlers)
-        for h in old_handlers:
+        old_level = root.level
+        root.setLevel(logging.CRITICAL)  # Silence everything
+
+        size_override = size_mb * 1024 * 1024 if size_mb else None
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+        try:
+            self.engine.setup(size_override=size_override, brands=brands)
+        finally:
+            sys.stdout, sys.stderr = old_stdout, old_stderr
+            root.setLevel(old_level)
+
+        # Remove StreamHandlers — keep file handlers only
+        for h in list(root.handlers):
             if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
                 root.removeHandler(h)
+        # Redirect stdout briefly to suppress basicConfig's initial output
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            self.engine.setup(size_override=size_override, brands=brands)
+        finally:
+            sys.stdout = old_stdout
+
+        # Remove any new StreamHandler added by basicConfig in setup()
+        old_handlers = [h for h in root.handlers if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)]
+        for h in old_handlers:
+            root.removeHandler(h)
+
+        limit_str = format_size(size_override) if size_override else format_size(self.engine.config.total_size_limit)
+        brand_str = ', '.join(brands) if brands else 'all'
+        self._print_header(brand_str, limit_str)
+
+        # Start keyboard listener
+        self._listener = threading.Thread(target=_kb_listener, daemon=True)
+        self._listener.start()
 
         try:
-            with Live(self._build_layout(), console=self.console, refresh_per_second=4,
-                      screen=True, transient=False) as live:
+            self.engine.seed_products()
+            qsize = self.engine.queue.remaining_count()
 
-                # Setup and seed (done already in __init__)
-                self._current_action = "Discovering guides..."
-                self.engine.seed_products()
-                queue_count = self.engine.queue.remaining_count()
-                self._log_lines.append(f"Queue: {queue_count} URLs")
-                self._current_action = f"Starting crawl ({queue_count} URLs)..."
+            if qsize == 0:
+                msg = "No guides discovered. All products may already be downloaded or platforms returned no results."
+                self.console.print(Text(msg, style="yellow")) if self.console else print(f"\n{msg}")
+                return
 
-                items = 0
-                while self.running and self.engine.queue.has_pending():
-                    # Keyboard check
-                    key = _read_key()
-                    if key == 'q':
-                        self.running = False
-                        self._log_lines.append("[QUIT] User exit")
-                        break
-                    elif key == 's':
-                        self.running = False
-                        self._log_lines.append("[STOP] Paused — run 'resume' to continue")
-                        break
-
-                    item = self.engine.queue.get_next()
-                    if item is None:
-                        break
-
-                    url, platform = item
-                    bytes_saved = self.engine.process_url(url, platform)
-                    items += 1
-
-                    # Progress callback for TUI
-                    self._on_progress(
-                        url=url,
-                        platform=platform.value,
-                        title="",  # engine doesn't expose this easily yet
-                        matched_product=None,
-                        bytes_saved=bytes_saved,
-                    )
-
-                    # Refresh TUI
-                    live.update(self._build_layout())
-
-                    if items % 5 == 0:
-                        self._current_action = f"Crawling... {items} processed"
-
-                # Final state
-                if not self.running:
+            # Main loop
+            while self.running and self.engine.queue.has_pending():
+                key = _pop_key()
+                if key == 'q':
+                    self.running = False
+                    break
+                elif key == 's':
+                    self.running = False
                     self.engine.session_manager.save()
-                self._current_action = "Done."
+                    break
 
-                # Build final index
-                index = self.engine.organizer.build_index()
-                self._log_lines.append("")
+                item = self.engine.queue.get_next()
+                if item is None:
+                    break
+                url, platform = item
 
-                total_guides = 0
-                total_images = 0
-                for brand, products in index.items():
-                    if brand.startswith('_'):
-                        continue
-                    for prod, cats in products.items():
-                        g = cats.get('guides', {}).get('count', 0)
-                        i = cats.get('images', {}).get('count', 0)
-                        total_guides += g
-                        total_images += i
-                self._log_lines.append(f"Total: {total_guides} guides, {total_images} images, "
-                                       f"{format_size(self._total_bytes)}")
+                b = self.engine.process_url(url, platform)
+                self._items += 1
+                if b > 0:
+                    self._saved += b
+                else:
+                    self._skipped += 1
 
-                # Show skip warnings
-                if self.engine.size_tracker and self.engine.size_tracker.skipped_files:
-                    n = len(self.engine.size_tracker.skipped_files)
-                    need = format_size(self.engine.size_tracker.skipped_total_bytes)
-                    self._log_lines.append(f"[WARN] {n} items skipped — need ~{need} more")
+                # Track per-brand
+                if self.engine.session_manager.state:
+                    pass  # brand tracking could be improved
 
-                live.update(self._build_layout())
-                time.sleep(2)  # Let user see final state
+                # Progress every item
+                self._print_progress()
+
+            # Final save & summary
+            if self.running:
+                self.engine.session_manager.save()
+            index = self.engine.organizer.build_index()
+            self._print_final(index)
 
         except KeyboardInterrupt:
-            self._log_lines.append("[STOP] Interrupted — state saved")
             self.engine.session_manager.save()
+            msg = "[STOP] Interrupted — state saved."
+            self.console.print(Text(msg, style="yellow")) if self.console else print(msg)
         except Exception as e:
-            self._log_lines.append(f"[ERROR] {e}")
+            msg = f"[ERROR] {e}"
+            self.console.print(Text(msg, style="red")) if self.console else print(msg)
         finally:
             self.running = False
-            # Restore original log handlers
-            for h in old_handlers:
-                if h not in root.handlers:
-                    root.addHandler(h)
+            root.setLevel(old_level)
 
 
-# ── Fallback simple CLI (no rich) ────────────────────────────────────
+# ── Fallback (no rich) ──────────────────────────────────────────────
 
 class SimpleCLI:
-    """Fallback CLI when rich is not installed."""
-
     def __init__(self):
         self.engine = ScraperEngine(Path("config"))
-        self.engine.setup()
-        self.running = False
 
     def run(self, brands=None, size_mb=None):
         size_bytes = size_mb * 1024 * 1024 if size_mb else None
         brand_str = ', '.join(brands) if brands else 'all'
-        size_str = format_size(size_bytes) if size_bytes else "default"
-        print(f"Starting: brands={brand_str}, limit={size_str}")
-        print("-" * 40)
+        limit_str = format_size(size_bytes) if size_bytes else "default"
+        print(f"Starting: {brand_str}, {limit_str}")
         try:
             self.engine.run(size_override=size_bytes, brands=brands)
         except KeyboardInterrupt:
             print("\n[STOP] State saved")
-        print("-" * 40)
-        print("Done.")
 
 
-# ── Entry point ──────────────────────────────────────────────────────
-
-def run_interactive(brands: Optional[list[str]] = None, size_mb: Optional[int] = None):
-    """Launch the best available UI."""
-    if HAS_RICH and not sys.flags.interactive:
+def run_interactive(brands=None, size_mb=None):
+    if HAS_RICH:
         tui = RichTUI()
         tui.run(brands=brands, size_mb=size_mb)
     else:
