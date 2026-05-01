@@ -19,7 +19,7 @@ platforms:
     name: "FCC ID Database"
     base_url: "https://fccid.io"
     description: "FCC filings often include internal photos and teardown info"
-    enabled: true
+    enabled: false  # TODO: needs adapter
 
   fcc_report:
     name: "FCC Report"
@@ -30,7 +30,7 @@ platforms:
   repair_wiki:
     name: "Repair Wiki"
     base_url: "https://repair.wiki"
-    enabled: true
+    enabled: false  # TODO: needs adapter
 
   samsung_parts:
     name: "Samsung Parts"
@@ -52,7 +52,7 @@ platforms:
     name: "TechWalls Teardowns"
     base_url: "https://www.techwalls.com"
     description: "Phone teardown guides with detailed photos"
-    enabled: true
+    enabled: false  # TODO: needs adapter
 
   gsmarena:
     name: "GSMArena"
@@ -64,4 +64,4 @@ platforms:
     name: "Notebookcheck"
     base_url: "https://www.notebookcheck.net"
     description: "Detailed laptop reviews and teardowns"
-    enabled: true
+    enabled: false  # TODO: needs adapter
