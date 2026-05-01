@@ -8,31 +8,27 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 
 def _fix_windows_encoding():
-    """Ensure UTF-8 encoding on Windows to avoid GBK mojibake."""
     if sys.platform == 'win32':
-        # Reconfigure stdout/stderr for UTF-8
         if hasattr(sys.stdout, 'reconfigure'):
             sys.stdout.reconfigure(encoding='utf-8', errors='replace')
             sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-        # Set environment hint for subprocesses
         os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
 
 
-_fix_windows_encoding()  # noqa: E402 — must run before src imports for UTF-8
+_fix_windows_encoding()  # noqa: E402
 
-from src.cli.interactive import InteractiveCLI
+from src.cli.interactive import run_interactive
 from src.engine.scraper import ScraperEngine
 from src.storage.filesystem import format_size
 
 
 def _parse_size(s: str) -> int:
-    """Parse size string like '200MB', '1GB' to bytes."""
     s = s.strip().upper()
     multipliers = {'B': 1, 'KB': 1024, 'MB': 1024 ** 2, 'GB': 1024 ** 3}
     for unit, mult in sorted(multipliers.items(), key=lambda x: -x[1]):
         if s.endswith(unit):
             return int(float(s[:-len(unit)]) * mult)
-    return int(s)  # raw bytes
+    return int(s)
 
 
 def main():
@@ -40,40 +36,17 @@ def main():
         cmd = sys.argv[1].lower()
 
         if cmd == "start":
-            # python -m src.main start <brand> [size]
             brands = None
             size_override = None
 
-            if len(sys.argv) >= 3:
+            if len(sys.argv) >= 3 and sys.argv[2].lower() != 'all':
                 brand_arg = sys.argv[2].lower()
-                if brand_arg != 'all':
-                    brands = [b.strip() for b in brand_arg.split(',')]
+                brands = [b.strip() for b in brand_arg.split(',')]
 
             if len(sys.argv) >= 4:
                 size_override = _parse_size(sys.argv[3])
 
-            engine = ScraperEngine(Path("config"))
-            brand_str = ', '.join(brands) if brands else 'all'
-            size_str = format_size(size_override) if size_override else format_size(engine.config.total_size_limit)
-
-            print(f"Repair Manual Scraper")
-            print(f"  Brands: {brand_str}")
-            print(f"  Limit:  {size_str}")
-            print("-" * 50)
-
-            try:
-                index = engine.run(size_override=size_override, brands=brands)
-                print("-" * 50)
-                print("Done!")
-                if engine.size_tracker and engine.size_tracker.skipped_files:
-                    count = len(engine.size_tracker.skipped_files)
-                    need = format_size(engine.size_tracker.skipped_total_bytes)
-                    print(f"\n[WARN] {count} items skipped — need ~{need} more. Try a larger limit.")
-            except ValueError as e:
-                print(f"[ERROR] {e}")
-                sys.exit(1)
-            except KeyboardInterrupt:
-                print("\n[PAUSED] State saved. Re-run to resume.")
+            run_interactive(brands=brands, size_mb=int(size_override / 1024 / 1024) if size_override else None)
             return
 
         elif cmd == "status":
@@ -82,8 +55,10 @@ def main():
             s = engine.get_status()
             print(f"Downloaded: {s['downloaded']} / {s['limit']} ({s['usage_percent']:.1f}%)")
             print(f"Queue:      {s['queue_size']} pending")
+            if s.get('completed'):
+                print(f"Completed:  {len(s['completed'])} products")
             if s.get('skipped_count', 0):
-                print(f"Skipped:    {s['skipped_count']} items (~{s['skipped_bytes']} more needed)")
+                print(f"Skipped:    {s['skipped_count']} items (~{s['skipped_bytes']} needed)")
             return
 
         elif cmd == "brands":
@@ -102,13 +77,18 @@ def main():
             print("  python -m src.main brands")
             print("\nExamples:")
             print("  python -m src.main start apple 200MB")
-            print("  python -m src.main start samsung,xiaomi 500MB")
-            print("  python -m src.main start all")
+            print("  python -m src.main start samsung,xiaomi")
+            print("  python -m src.main start")
             return
 
-    # Interactive mode (default)
-    cli = InteractiveCLI()
-    cli.run_interactive()
+    # Interactive mode (default, no args)
+    run_interactive()
+    # close headless browser on exit
+    try:
+        from src.platforms.headless import close_browser
+        close_browser()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
