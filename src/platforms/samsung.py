@@ -127,13 +127,9 @@ class SamsungScraper(BasePlatformScraper):
     # ------------------------------------------------------------------
 
     def discover_guides(self, product: Product) -> list[str]:
-        """Search Samsung sources for repair guide URLs matching *product*.
-
-        Strategy:
-        1. Search samsung.com/us/support for each product keyword
-        2. Check samsungparts.com Self-Repair program page for model links
-        """
-        discovered: list[str] = []
+        """Search Samsung sources for repair guide URLs matching *product*."""
+        if product is None:
+            return []
         keywords = product.keywords if product.keywords else [product.name]
 
         # --- 1. Samsung support search ---

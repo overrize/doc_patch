@@ -63,21 +63,22 @@ class IFixitScraper(BasePlatformScraper):
 
             results = data.get("results", [])
             for result in results:
-                if result.get("type") != "guide":
+                # NOTE: iFixit suggest returns dataType="guide", not type="guide"
+                if result.get("dataType") != "guide":
                     continue
 
-                docid = result.get("docid")
+                guideid = result.get("guideid")
                 title = result.get("title", "")
-                if docid is None:
+                if guideid is None:
                     continue
 
                 title_lower = title.lower()
                 if not _any_keyword_matches(title_lower, product.keywords):
                     continue
 
-                if docid not in guide_ids:
-                    guide_ids[docid] = title
-                    log.debug("Discovered guide: %s (ID: %s)", title, docid)
+                if guideid not in guide_ids:
+                    guide_ids[guideid] = title
+                    log.debug("Discovered guide: %s (ID: %s)", title, guideid)
 
         urls = [f"{IFIXIT_API_BASE}/guides/{gid}" for gid in guide_ids]
         log.info(

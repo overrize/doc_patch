@@ -87,14 +87,9 @@ class AppleScraper(BasePlatformScraper):
         return Platform.APPLE
 
     def discover_guides(self, product: Product) -> list[str]:
-        """Discover Apple repair manual TOC pages for a product.
-
-        Uses product.keywords (including model numbers like "a2849") to find
-        matching repair manuals from the Apple Support site.
-
-        Returns a list of manual page URLs (the TOC/index pages).
-        """
-        urls = []
+        """Discover Apple repair manual TOC pages for a product."""
+        if product is None:
+            return []
         name_lower = product.name.lower().strip()
 
         # 1. Check known TOC ID mapping by product name
@@ -131,11 +126,12 @@ class AppleScraper(BasePlatformScraper):
         return list(dict.fromkeys(urls))  # deduplicate, preserve order
 
     def scrape_guide(self, url: str, product: Product) -> Optional[ScrapedItem]:
-        """Scrape an Apple repair manual HTML page.
-
-        Extracts the page title, Manual ID, procedure text, and structured
-        sections (Safety, Procedures, Views/Parts/Tools).  Saves as a .html guide.
-        """
+        """Scrape an Apple repair manual HTML page."""
+        if product is None:
+            product_name = "Unknown"
+        else:
+            product_name = product.name
+        
         try:
             resp = self._get(url)
             html_content = self._get_text(resp)
@@ -143,8 +139,7 @@ class AppleScraper(BasePlatformScraper):
             log.warning("Failed to fetch Apple guide %s: %s", url, e)
             return None
 
-        # Extract title from the page heading
-        title = self._extract_title(html_content) or f"Apple Repair Manual - {product.name}"
+        title = self._extract_title(html_content) or f"Apple Repair Manual - {product_name}"
 
         # Extract Manual ID (e.g. QNCHKL)
         manual_id = self._extract_manual_id(html_content)
@@ -160,7 +155,7 @@ class AppleScraper(BasePlatformScraper):
         if manual_id:
             output_parts.append(f'<p><strong>Manual ID:</strong> {manual_id}</p>')
 
-        output_parts.append(f'<p><strong>Product:</strong> {product.name}</p>')
+        output_parts.append(f'<p><strong>Product:</strong> {product_name}</p>')
         output_parts.append(
             f'<p><strong>Original URL:</strong> <a href="{url}">{url}</a></p>'
         )
