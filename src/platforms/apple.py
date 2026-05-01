@@ -138,7 +138,7 @@ class AppleScraper(BasePlatformScraper):
         """
         try:
             resp = self._get(url)
-            html_content = resp.text
+            html_content = self._get_text(resp)
         except Exception as e:
             log.warning("Failed to fetch Apple guide %s: %s", url, e)
             return None

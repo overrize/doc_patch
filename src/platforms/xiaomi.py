@@ -271,7 +271,7 @@ class XiaomiScraper(BasePlatformScraper):
             search_url = f"{self.MI_SUPPORT_SEARCH}?keywords={quote_plus(term)}+repair"
             try:
                 resp = self._get(search_url)
-                html = resp.text
+                html = self._get_text(resp)
                 links = self._extract_links(html)
 
                 for link in links:
@@ -311,7 +311,7 @@ class XiaomiScraper(BasePlatformScraper):
             self.rate_limiter.wait("diygeardo.com")
             resp = self.session.get(category_url, timeout=self.config.request_timeout)
             resp.raise_for_status()
-            html = resp.text
+            html = self._get_text(resp)
 
             links = self._extract_links(html)
             for link in links:
@@ -426,7 +426,7 @@ class XiaomiScraper(BasePlatformScraper):
         """Generic guide scraper for any URL (fallback)."""
         try:
             resp = self._get(url)
-            html = resp.text
+            html = self._get_text(resp)
         except Exception:
             return None
 

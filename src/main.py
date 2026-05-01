@@ -1,9 +1,24 @@
 """Main entry point for the Repair Manual Scraper."""
 
 import sys
+import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+
+
+def _fix_windows_encoding():
+    """Ensure UTF-8 encoding on Windows to avoid GBK mojibake."""
+    if sys.platform == 'win32':
+        # Reconfigure stdout/stderr for UTF-8
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+        # Set environment hint for subprocesses
+        os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+
+
+_fix_windows_encoding()  # noqa: E402 — must run before src imports for UTF-8
 
 from src.cli.interactive import InteractiveCLI
 from src.engine.scraper import ScraperEngine

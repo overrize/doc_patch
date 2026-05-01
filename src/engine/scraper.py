@@ -1,10 +1,14 @@
 """Core scraper orchestrator - ties all components together."""
 
 import logging
+import os
 import time
 import traceback
 from pathlib import Path
 from typing import Optional
+
+# Force UTF-8 for all file I/O on Windows
+os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
 
 from ..config import load_settings, load_products, load_platforms
 from ..types import Platform, Product, ScraperConfig
@@ -71,15 +75,15 @@ class ScraperEngine:
         # Initialize product lookup for LLM classifier
         init_product_lookup(self.products)
         
-        # Setup logging with traceback support
+        # Setup logging with traceback support — UTF-8 for Windows compatibility
         log_format = '%(asctime)s [%(levelname)s] %(name)s:%(lineno)d: %(message)s'
         error_log = self.config.output_dir / "errors.log"
         logging.basicConfig(
             level=getattr(logging, self.config.log_level),
             format=log_format,
             handlers=[
-                logging.FileHandler(self.config.log_file),
-                logging.FileHandler(error_log),
+                logging.FileHandler(self.config.log_file, encoding='utf-8'),
+                logging.FileHandler(error_log, encoding='utf-8'),
                 logging.StreamHandler(),
             ]
         )

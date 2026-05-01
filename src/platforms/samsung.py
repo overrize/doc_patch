@@ -166,7 +166,7 @@ class SamsungScraper(BasePlatformScraper):
         resp = self._get(search_url)
 
         parser = _SamsungHTMLParser()
-        parser.feed(resp.text)
+        parser.feed(self._get_text(resp))
 
         urls: list[str] = []
         for link in parser.links:
@@ -185,7 +185,7 @@ class SamsungScraper(BasePlatformScraper):
         resp.raise_for_status()
 
         parser = _SamsungHTMLParser()
-        parser.feed(resp.text)
+        parser.feed(self._get_text(resp))
 
         urls: list[str] = []
         for link in parser.links:
@@ -233,7 +233,7 @@ class SamsungScraper(BasePlatformScraper):
         linked, otherwise a GUIDE with the page HTML."""
         try:
             resp = self._get(url)
-            html = resp.text
+            html = self._get_text(resp)
 
             parser = _SamsungHTMLParser()
             parser.feed(html)

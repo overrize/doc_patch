@@ -91,3 +91,11 @@ class BasePlatformScraper(ABC):
         except Exception as e:
             log.warning(f"Download failed: {url} - {e}")
             return None
+
+    @staticmethod
+    def _get_text(resp) -> str:
+        """Decode response content as UTF-8, with replacement for bad bytes.
+        
+        Use this instead of resp.text to avoid Windows GBK encoding issues.
+        """
+        return resp.content.decode('utf-8', errors='replace')

@@ -26,6 +26,10 @@ python -m venv .venv
 
 # 安装依赖
 pip install -r requirements.txt
+
+# [Windows 重要] 设置 UTF-8 编码，避免中文乱码
+set PYTHONIOENCODING=utf-8
+# 或永久设置: setx PYTHONIOENCODING utf-8
 ```
 
 ### 2. 在 OpenCode 中使用（推荐）
@@ -143,6 +147,13 @@ doc_patch/
 ```
 
 ## 常见问题
+
+**Q: Windows 上中文乱码 / GBK 编码错误？**
+```powershell
+set PYTHONIOENCODING=utf-8
+# 永久: setx PYTHONIOENCODING utf-8
+```
+重启终端生效。代码已内置 UTF-8 编码处理，确保环境变量即可。
 
 **Q: 爬取中途断了怎么办？**
 状态自动保存到 `config/state.json`，重新 `start` 即可续传。
