@@ -1,72 +1,55 @@
 # Repair Manual Scraper
 
-多平台手机维修手册爬虫 — 从 iFixit、Samsung、Apple、Xiaomi 自动爬取维修指南和说明书，按品牌/产品分类存储。
+多平台手机维修手册爬虫 — 从 iFixit / Samsung / Apple / Xiaomi 自动拉取维修指南，按品牌/产品分类存储。
 
-## 前置条件
-
-| 工具 | 版本 | 安装 |
-|------|------|------|
-| **Git** | 2.x+ | [git-scm.com](https://git-scm.com/download/win) |
-| **Python** | 3.9+ | [python.org](https://www.python.org/downloads/) |
-| **pip** | 随 Python | 安装时勾选 "Add Python to PATH" |
-| **OpenCode** | 1.14+ | `npm install -g opencode-ai` |
-
-## 快速开始
-
-### 1. 克隆 & 安装环境
+## 安装
 
 ```powershell
-# Windows PowerShell
+# 1. 克隆
 git clone git@github.com:overrize/doc_patch.git
 cd doc_patch
 
-# 创建虚拟环境（推荐）
+# 2. Python 虚拟环境
 python -m venv .venv
 .venv\Scripts\activate
 
-# 安装依赖
+# 3. 依赖（requests + pyyaml + playwright）
 pip install -r requirements.txt
 
-# [Windows 重要] 设置 UTF-8 编码，避免中文乱码
+# 4. [Windows 必须] 设置 UTF-8 编码
 set PYTHONIOENCODING=utf-8
-# 或永久设置: setx PYTHONIOENCODING utf-8
+# 永久生效: setx PYTHONIOENCODING utf-8
 ```
 
-### 2. 在 OpenCode 中使用（推荐）
+`playwright install chromium` **不需要** — 会自动用系统 Edge。
+
+## 使用
+
+### 命令行（直接跑）
 
 ```bash
-# 在项目根目录启动 opencode
+python -m src.main start              # 全部品牌，默认 1GB
+python -m src.main start apple 200MB  # 只爬 Apple，200MB
+python -m src.main start samsung,xiaomi 500MB
+python -m src.main start 500MB        # 全部品牌，500MB
+```
+
+### OpenCode 里用
+
+```bash
 opencode
-
-# 输入命令，agent 自动执行爬取
 /scrape-manuals apple 200MB
-/scrape-manuals samsung,xiaomi 500MB
-/scrape-manuals all
 ```
 
-`/scrape-manuals` 告诉 AI agent 调用 Python 脚本，不需要手动输入交互命令。
-
-### 3. 直接使用 Python（备选）
+### 交互模式
 
 ```bash
-# 交互模式
 python -m src.main
-
-# 进入后
-scraper> start apple 200MB
-scraper> status
-scraper> stop
-scraper> quit
+scraper> start apple 200MB    # 一步启动
+scraper> status               # 进度 + 已完成产品 + size 告警
+scraper> brands               # 可用品牌
+scraper> stop / resume        # 暂停 / 续传
 ```
-
-## 可用品牌
-
-| 命令参数 | 覆盖产品 |
-|----------|----------|
-| `apple` | iPhone 12–17, MacBook M3/M4, iPad Pro, Apple Watch |
-| `samsung` | Galaxy S22–S25, Z Fold/Flip 4–6, A 系列 |
-| `xiaomi` | Xiaomi 12–15, Redmi Note, POCO |
-| `all` | 以上全部 |
 
 ## 爬取结果
 
@@ -74,47 +57,54 @@ scraper> quit
 manuals/
 ├── Apple/
 │   ├── iPhone_15_Pro/
-│   │   ├── guides/      # HTML 维修指南文字
-│   │   ├── images/      # 维修步骤图片
-│   │   └── manuals/     # PDF 维修手册
+│   │   ├── guides/           HTML 维修指南
+│   │   ├── images/           步骤图片
+│   │   └── manuals/          PDF 维修手册
 │   └── iPhone_14/
-│       └── ...
 ├── Samsung/
-│   └── Galaxy_S24_Ultra/
-│       └── ...
+│   └── Galaxy_S24/
 └── Xiaomi/
     └── Xiaomi_14_Pro/
-        └── ...
 ```
+
+**已下载过的产品会自动跳过**，再跑 `start` 不会重复拉。
+
+## 可用品牌
+
+| 参数 | 产品 |
+|------|------|
+| `apple` | iPhone 12–17, MacBook M3/M4, iPad Pro, Apple Watch |
+| `samsung` | Galaxy S22–S25, Z Fold/Flip 4–6, A 系列 |
+| `xiaomi` | Xiaomi 12–15, Redmi Note, POCO |
+| `all` / 不填 | 以上全部 |
 
 ## 配置
 
-### 添加品牌/产品
+### 加品牌/产品
 
 编辑 `config/products.yaml`：
 
 ```yaml
-# 添加新品牌只需加一个顶层 key
 Huawei:
   - name: "Pura 70 Pro"
     keywords: ["pura 70 pro", "hbp-al00"]
-  - name: "Pura 70 Ultra"
-    keywords: ["pura 70 ultra", "hbp-al10"]
 ```
 
-### 修改大小限制
+然后 `start huawei` 即可。
 
-`config/settings.yaml` 第 5 行：
+### 改默认 size
+
+`config/settings.yaml`：
 
 ```yaml
-total_size_limit: 1073741824  # 1GB = 1073741824 字节
+total_size_limit: 1073741824  # 字节
 ```
 
-也可以在 `start` 命令中覆盖：`start apple 200MB`
+也可以在命令里随时覆盖：`start apple 200MB`。
 
-### LLM 辅助产品匹配
+### 启用 LLM 辅助匹配
 
-在 `config/settings.yaml` 中启用，当关键词匹配失败时使用 LLM 识别产品：
+`config/settings.yaml`：
 
 ```yaml
 llm:
@@ -123,45 +113,50 @@ llm:
   model: "deepseek-chat"
 ```
 
+关键字匹配失败时用 LLM 识别产品名称。
+
+## 日志
+
+| 文件 | 内容 |
+|------|------|
+| `manuals/scraper.log` | 全部日志（文件名:行号） |
+| `manuals/errors.log` | 仅 WARNING+ |
+
 ## 项目结构
 
 ```
-doc_patch/
-├── .opencode/                # OpenCode 命令定义
-│   └── commands/
-│       └── scrape-manuals.md # /scrape-manuals 命令
-├── src/                      # 爬虫源码
-│   ├── main.py               # 入口
-│   ├── engine/               # 核心引擎 (队列/去重/限速/会话)
-│   ├── platforms/            # 4 个平台适配器
-│   ├── storage/              # 文件组织
-│   ├── llm/                  # LLM 分类器
-│   └── cli/                  # 交互终端
-├── config/                   # 配置
-│   ├── settings.yaml         # 通用设置 (size, 限速, LLM)
-│   ├── products.yaml         # 目标产品列表
-│   └── platforms.yaml        # 平台配置
-├── manuals/                  # 爬取结果 (gitignore)
-├── requirements.txt
-└── README.md
+src/
+├── main.py             入口
+├── engine/             核心引擎（队列/去重/限速/会话/size追踪）
+├── platforms/          平台适配器
+│   ├── ifixit.py       iFixit API（主数据源）
+│   ├── samsung.py      Samsung（iFixit 为搜索源）
+│   ├── apple.py        Apple（已知 Manual ID + 搜索）
+│   ├── xiaomi.py       Xiaomi（支持文章 + diygeardo）
+│   └── headless.py     Playwright 封装（自动用系统 Edge）
+├── storage/           文件组织
+├── llm/               LLM 分类器
+└── cli/              交互终端
+config/
+├── settings.yaml      通用设置
+├── products.yaml      目标产品
+└── platforms.yaml     平台开关
 ```
 
 ## 常见问题
 
-**Q: Windows 上中文乱码 / GBK 编码错误？**
+**Windows 中文乱码？**
 ```powershell
 set PYTHONIOENCODING=utf-8
-# 永久: setx PYTHONIOENCODING utf-8
 ```
-重启终端生效。代码已内置 UTF-8 编码处理，确保环境变量即可。
 
-**Q: 爬取中途断了怎么办？**
-状态自动保存到 `config/state.json`，重新 `start` 即可续传。
+**爬取中断了？**
+状态保存到 `config/state.json`，直接重新 `start` 续传。
 
-**Q: 为什么有些产品没爬到？**
-检查 `config/platforms.yaml` 确认平台已启用。部分平台可能因网络/反爬返回空结果。
+**Samsung 爬不到？**
+Samsung 站点是 JS 渲染，自动用 iFixit 搜索替代。无需额外配置。
 
-**Q: 想加新平台（如华为）？**
-1. 在 `config/platforms.yaml` 添加平台配置
-2. 在 `src/platforms/` 创建新的 adapter 类
-3. 在 `src/engine/scraper.py` 的 `_get_adapter()` 注册
+**加新平台？**
+1. `config/platforms.yaml` 加配置
+2. `src/platforms/` 创建新 adapter
+3. `src/engine/scraper.py` 的 `_get_adapter()` 注册
