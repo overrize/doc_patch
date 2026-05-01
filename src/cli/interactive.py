@@ -21,11 +21,10 @@ class InteractiveCLI:
     def print_banner(self):
         print(r"""
   Repair Manual Scraper v0.2.0
-  Phone Repair Documentation Crawler
 
-  Usage: start <brand> [size]   e.g. start apple 200MB
+  Usage: start [brand] [size]   e.g. start, start apple, start 200MB
          brands                  list available brands
-         status                  show progress
+         status                  show progress + completed products
          stop / resume           pause / continue
          help / quit
         """)
@@ -33,18 +32,20 @@ class InteractiveCLI:
     def print_help(self):
         print("""
 Commands:
-  start <brand> [size]   Begin scraping. brand: apple|samsung|xiaomi|all (or comma-sep)
-                         size: e.g. 200MB, 500MB, 1GB (default: 1GB)
+  start [brand] [size]   Begin scraping. No args = all brands, default size.
+                         brand: apple|samsung|xiaomi|all (or comma-sep)
+                         size: 200MB, 500MB, 1GB (default: config settings.yaml)
   brands                 List available brands
-  status                 Show progress + size usage + skip warnings
+  status                 Show progress, completed products, skip warnings
   stop                   Pause and save state
   resume                 Continue from last saved state
   quit                   Exit
 
 Examples:
-  > start apple 200MB
-  > start samsung,xiaomi 500MB
-  > start all
+  > start                 # all brands, default size
+  > start 200MB           # all brands, 200MB limit
+  > start apple           # one brand, default size
+  > start samsung 500MB   # one brand, 500MB limit
   > status
         """)
 
@@ -63,43 +64,55 @@ Examples:
         except ValueError:
             raise ValueError(f"Invalid size: '{s}'. Use 200MB, 1GB, etc.")
 
+    def _is_size_arg(self, s: str) -> bool:
+        """Check if a string looks like a size argument (ends with B/KB/MB/GB/TB)."""
+        s_upper = s.strip().upper()
+        return any(s_upper.endswith(u) for u in ('B', 'KB', 'MB', 'GB', 'TB'))
+
     def cmd_start(self, args: list[str]):
         """Start the crawling process.
         
-        args[0]: brand (apple, samsung, xiaomi, all, or comma-sep)
-        args[1]: size (optional, e.g. 200MB)
+        No args: all brands, config default size.
+        start <size>           → all brands, specified size (e.g. start 200MB)
+        start <brand>          → one brand, default size
+        start <brand> <size>   → one brand, specified size
+        start <brand,brand> [size] → multiple brands
         """
         if self.running:
             print("Scraper is already running! Use 'stop' first.")
             return
         
-        if not args:
-            print("Usage: start <brand> [size]")
-            print("  brand: apple, samsung, xiaomi, all (or comma-separated)")
-            print("  size:  200MB, 500MB, 1GB (optional, default: 1GB)")
-            return
-        
-        brand_arg = args[0].lower().strip()
-        
-        # Parse brand
-        if brand_arg == 'all':
-            brands = None
-        else:
-            brands = [b.strip() for b in brand_arg.split(',')]
-            invalid = [b for b in brands if b not in _AVAILABLE_BRANDS and b != 'all']
-            if invalid:
-                print(f"Unknown brand(s): {', '.join(invalid)}")
-                print(f"Available: {', '.join(sorted(_AVAILABLE_BRANDS))} + all")
-                return
-        
-        # Parse size
+        brands = None  # None = all
         size_override = None
-        if len(args) >= 2:
-            try:
-                size_override = self._parse_size(args[1])
-            except ValueError as e:
-                print(f"[ERROR] {e}")
-                return
+        
+        if args:
+            first = args[0].lower().strip()
+            
+            if self._is_size_arg(first):
+                # start 200MB → all brands, given size
+                try:
+                    size_override = self._parse_size(first)
+                except ValueError as e:
+                    print(f"[ERROR] {e}")
+                    return
+            else:
+                # start apple [200MB]
+                if first == 'all':
+                    brands = None
+                else:
+                    brands = [b.strip() for b in first.split(',')]
+                    invalid = [b for b in brands if b not in _AVAILABLE_BRANDS]
+                    if invalid:
+                        print(f"Unknown brand(s): {', '.join(invalid)}")
+                        print(f"Available: {', '.join(sorted(_AVAILABLE_BRANDS))} + all")
+                        return
+                
+                if len(args) >= 2:
+                    try:
+                        size_override = self._parse_size(args[1])
+                    except ValueError as e:
+                        print(f"[ERROR] {e}")
+                        return
         
         size_str = format_size(size_override) if size_override else format_size(self.engine.config.total_size_limit)
         brand_str = ', '.join(brands) if brands else 'all'
@@ -130,6 +143,7 @@ Examples:
         """Show current progress with skip warnings."""
         status = self.engine.get_status()
         brands_str = ', '.join(status['brands']) if status.get('brands') else 'all'
+        completed = status.get('completed', [])
         print(f"""
 === Scraper Status ===
 Brands:      {brands_str}
@@ -137,6 +151,13 @@ Downloaded:  {status['downloaded']} / {status['limit']} ({status['usage_percent'
 Queue:       {status['queue_size']} URLs pending
 Elapsed:     {status['elapsed']} seconds
         """.strip())
+        
+        if completed:
+            print(f"\n  Already done ({len(completed)} products):")
+            for name in completed[:10]:
+                print(f"    - {name}")
+            if len(completed) > 10:
+                print(f"    ... and {len(completed) - 10} more")
         
         if status.get('skipped_count', 0) > 0:
             print(f"\n[WARN] {status['skipped_count']} items skipped — need ~{status['skipped_bytes']} more")

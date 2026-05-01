@@ -41,6 +41,7 @@ class ScraperEngine:
         # Progress tracking
         self.start_time: float = 0
         self.paused: bool = False
+        self.completed_products: list[Product] = []  # Already-downloaded products
 
     def setup(self, size_override: Optional[int] = None, brands: Optional[list[str]] = None):
         """Initialize all components from configuration.
@@ -111,6 +112,49 @@ class ScraperEngine:
         log.info(f"Output directory: {self.config.output_dir}")
         log.info(f"Size limit: {format_size(self.size_tracker.max_bytes)} "
                  f"({format_size(self.size_tracker.remaining)} remaining)")
+        
+        # Check for already-downloaded products
+        self._skip_completed_products()
+
+    def _skip_completed_products(self):
+        """Scan manuals/ for products that already have content, and skip them.
+        
+        A product is considered 'done' if its folder exists and contains any files
+        (guides, images, or manuals). Skipped products are logged and removed from
+        self.products.
+        """
+        if not self.config.output_dir.exists():
+            return
+        
+        completed = []
+        still_needed = []
+        
+        for product in self.products:
+            product_dir = self.organizer.product_folder(product)
+            if product_dir.exists() and self._has_content(product_dir):
+                completed.append(product)
+            else:
+                still_needed.append(product)
+        
+        if completed:
+            self.products = still_needed
+            names = [f"{p.brand}/{p.name}" for p in completed]
+            log.info(f"Skipping {len(completed)} already-downloaded products: {', '.join(names[:10])}")
+            if len(names) > 10:
+                log.info(f"  ... and {len(names) - 10} more")
+            self.completed_products = completed
+        else:
+            self.completed_products = []
+
+    @staticmethod
+    def _has_content(folder: Path) -> bool:
+        """Check if a product folder contains any downloaded files."""
+        for sub in ('guides', 'images', 'manuals', 'teardowns', 'schematics', 'specs'):
+            subdir = folder / sub
+            if subdir.exists():
+                if any(f.is_file() for f in subdir.iterdir()):
+                    return True
+        return False
 
     def _get_adapter(self, platform: Platform):
         """Lazy-load platform adapters."""
@@ -325,4 +369,5 @@ class ScraperEngine:
             'skipped_bytes': format_size(self.size_tracker.skipped_total_bytes) if self.size_tracker else '0 B',
             'skipped_files': self.size_tracker.skipped_files[-5:] if self.size_tracker else [],
             'brands': sorted(set(p.brand for p in self.products)) if self.products else [],
+            'completed': [f"{p.brand}/{p.name}" for p in (self.completed_products or [])],
         }
