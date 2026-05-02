@@ -58,7 +58,7 @@ class BasePlatformScraper(ABC):
         ...
 
     def _get(self, url: str, **kwargs) -> requests.Response:
-        """Rate-limited GET request with retries."""
+        """Rate-limited GET request with retries. Skips retry on 404."""
         self.rate_limiter.wait(self.rate_limiter.domain_from_platform(self.platform))
         for attempt in range(self.config.max_retries):
             try:
@@ -66,6 +66,10 @@ class BasePlatformScraper(ABC):
                 resp.raise_for_status()
                 return resp
             except requests.RequestException as e:
+                # Don't retry 404 — content doesn't exist
+                if hasattr(e, 'response') and e.response is not None and e.response.status_code == 404:
+                    log.debug("404 — skipping: %s", url)
+                    raise
                 log.warning(f"Request failed (attempt {attempt+1}/{self.config.max_retries}): {url} - {e}")
                 if attempt < self.config.max_retries - 1:
                     import time

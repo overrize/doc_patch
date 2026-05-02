@@ -248,8 +248,19 @@ class SamsungScraper(BasePlatformScraper):
     # ------------------------------------------------------------------
 
     def scrape_guide(self, url: str, product: Product) -> Optional[ScrapedItem]:
-        """Scrape a single Samsung guide page.  Returns a MANUAL if a PDF is
-        linked, otherwise a GUIDE with the page HTML."""
+        """Scrape a guide page. Delegates to iFixit for API URLs."""
+        # iFixit API URLs → delegate to iFixit scraper
+        if 'ifixit.com/api' in url:
+            try:
+                from .ifixit import IFixitScraper
+                ifixit = IFixitScraper(self.config, self.rate_limiter)
+                item = ifixit.scrape_guide(url, product)
+                if item:
+                    item.platform = Platform.SAMSUNG
+                return item
+            except Exception:
+                pass
+
         try:
             resp = self._get(url)
             html = self._get_text(resp)
