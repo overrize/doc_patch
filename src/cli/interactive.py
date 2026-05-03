@@ -73,6 +73,7 @@ class RichTUI:
         self.console = Console() if HAS_RICH else None
         self.running = False
         self._start_time = 0.0
+        self._discovery_time = 0.0
         self._items = 0
         self._saved = 0
         self._skipped = 0
@@ -93,22 +94,31 @@ class RichTUI:
             print("[s] stop  [q] quit\n")
 
     def _print_progress(self):
-        """One-line progress update."""
-        elapsed = _elapsed_str(time.time() - self._start_time)
+        """One-line progress with speed."""
+        elapsed = time.time() - self._start_time
+        elapsed_str = _elapsed_str(elapsed)
         size = format_size(self._saved)
         limit = format_size(self.engine.size_tracker.max_bytes) if self.engine.size_tracker else "?"
         pct = self.engine.size_tracker.usage_percent if self.engine.size_tracker else 0
 
-        line = f"[{elapsed}]  {self._items} items  {size}/{limit} ({pct:.0f}%)"
+        # Speed
+        from ..engine.parallel import get_speed, format_speed
+        _, speed = get_speed()
+        speed_str = format_speed(speed)
 
-        # Brand counts
+        # Time split: discovery vs download
+        disc_str = _elapsed_str(self._discovery_time) if self._discovery_time else "..."
+
+        line = f"[{elapsed_str}]  {self._items} items  {size}/{limit} ({pct:.0f}%)  {speed_str}"
+
         if self._brand_counts:
             parts = [f"{b}={c}" for b, c in sorted(self._brand_counts.items())]
             line += f"  |  {'  '.join(parts)}"
 
-        # Skipped
         if self._skipped:
-            line += f"  |  skipped: {self._skipped}"
+            line += f"  |  skip:{self._skipped}"
+
+        line += f"  |  disc:{disc_str}"
 
         if self.console:
             self.console.print(Text(line, style="green"))
@@ -154,7 +164,8 @@ class RichTUI:
         self._start_time = time.time()
 
         # Suppress console during engine setup
-        import logging, io
+        import logging
+        import io
         root = logging.getLogger()
         old_level = root.level
         root.setLevel(logging.CRITICAL)  # Silence everything
@@ -173,18 +184,6 @@ class RichTUI:
         for h in list(root.handlers):
             if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
                 root.removeHandler(h)
-        # Redirect stdout briefly to suppress basicConfig's initial output
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            self.engine.setup(size_override=size_override, brands=brands)
-        finally:
-            sys.stdout = old_stdout
-
-        # Remove any new StreamHandler added by basicConfig in setup()
-        old_handlers = [h for h in root.handlers if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)]
-        for h in old_handlers:
-            root.removeHandler(h)
 
         limit_str = format_size(size_override) if size_override else format_size(self.engine.config.total_size_limit)
         brand_str = ', '.join(brands) if brands else 'all'
@@ -195,7 +194,9 @@ class RichTUI:
         self._listener.start()
 
         try:
+            t0 = time.time()
             self.engine.seed_products()
+            self._discovery_time = time.time() - t0
             qsize = self.engine.queue.remaining_count()
 
             if qsize == 0:

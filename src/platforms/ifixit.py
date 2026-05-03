@@ -132,13 +132,7 @@ class IFixitScraper(BasePlatformScraper):
         )
 
     def scrape_images(self, guide_item: ScrapedItem, product: Product) -> list[ScrapedItem]:
-        """Download images referenced in a guide's steps.
-
-        Re-fetches the guide JSON from ``guide_item.url`` (the API URL),
-        iterates ``steps[].media[].data`` to locate the **standard**
-        size (~300px), downloads the image bytes via
-        ``_download_file``, and returns one ``ScrapedItem`` per image.
-        """
+        """Download images referenced in a guide's steps — parallel via ThreadPool."""
         api_url = guide_item.url
         try:
             data = self._get_json(api_url)
@@ -146,13 +140,13 @@ class IFixitScraper(BasePlatformScraper):
             log.error("Failed to re-fetch guide for images: %s", api_url)
             return []
 
-        images: list[ScrapedItem] = []
+        # Collect all image URLs first
+        image_urls: list[tuple[str, str, str]] = []  # (url, step_title, guide_web_url)
         guide_web_url = guide_item.source_url
         steps = data.get("steps", [])
 
         for step_idx, step in enumerate(steps, 1):
             media_dict = step.get("media", {})
-            # media is a dict: {"type": "image", "data": [{id, guid, standard, ...}]}
             if isinstance(media_dict, dict):
                 image_list = media_dict.get("data", [])
             elif isinstance(media_dict, list):
@@ -161,31 +155,37 @@ class IFixitScraper(BasePlatformScraper):
                 continue
 
             for img_obj in image_list:
-                # img_obj has size variants: standard, medium, large, original
                 if not isinstance(img_obj, dict):
                     continue
                 image_url = img_obj.get("standard") or img_obj.get("medium") or img_obj.get("large")
                 if not image_url:
                     continue
-
-                image_bytes = self._download_file(image_url)
-                if not image_bytes:
-                    continue
-
-                # Derive a short title from the first line of the step
                 step_title = _step_image_title(guide_item.title, step, step_idx)
+                image_urls.append((image_url, step_title, guide_web_url))
 
-                img = ScrapedItem(
-                    url=image_url,
-                    title=step_title,
-                    content_type=ContentType.IMAGE,
-                    platform=Platform.IFIXIT,
-                    source_url=guide_web_url,
-                    file_extension=".jpg",
-                    matched_product=product,
-                    content_bytes=image_bytes,
-                )
-                images.append(img)
+        if not image_urls:
+            return []
+
+        # Download in parallel
+        from ..engine.parallel import batch_download
+        url_list = [u for u, _, _ in image_urls]
+        results = batch_download(url_list, max_workers=12)
+
+        # Build ScrapedItems
+        images: list[ScrapedItem] = []
+        url_to_meta = {u: (t, w) for u, t, w in image_urls}
+        for img_url, img_bytes in results.items():
+            step_title, source_url = url_to_meta.get(img_url, (guide_item.title, guide_web_url))
+            images.append(ScrapedItem(
+                url=img_url,
+                title=step_title,
+                content_type=ContentType.IMAGE,
+                platform=Platform.IFIXIT,
+                source_url=source_url,
+                file_extension=".jpg",
+                matched_product=product,
+                content_bytes=img_bytes,
+            ))
 
         return images
 
