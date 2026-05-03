@@ -323,6 +323,15 @@ class SamsungScraper(BasePlatformScraper):
 
     def scrape_images(self, guide_item: ScrapedItem, product: Product) -> list[ScrapedItem]:
         """Extract and download repair-relevant images from a scraped guide page."""
+        # iFixit URLs → delegate
+        if 'ifixit.com' in guide_item.url:
+            try:
+                from .ifixit import IFixitScraper
+                ifixit = IFixitScraper(self.config, self.rate_limiter)
+                return ifixit.scrape_images(guide_item, product)
+            except Exception:
+                pass
+
         if guide_item.content_bytes is None:
             return []
 

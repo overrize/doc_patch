@@ -151,13 +151,20 @@ class IFixitScraper(BasePlatformScraper):
         steps = data.get("steps", [])
 
         for step_idx, step in enumerate(steps, 1):
-            media_list = step.get("media", [])
-            for media in media_list:
-                image_entry = _pick_standard_image(media.get("data"))
-                if image_entry is None:
-                    continue
+            media_dict = step.get("media", {})
+            # media is a dict: {"type": "image", "data": [{id, guid, standard, ...}]}
+            if isinstance(media_dict, dict):
+                image_list = media_dict.get("data", [])
+            elif isinstance(media_dict, list):
+                image_list = media_dict
+            else:
+                continue
 
-                image_url = _resolve_image_url(media, image_entry)
+            for img_obj in image_list:
+                # img_obj has size variants: standard, medium, large, original
+                if not isinstance(img_obj, dict):
+                    continue
+                image_url = img_obj.get("standard") or img_obj.get("medium") or img_obj.get("large")
                 if not image_url:
                     continue
 
