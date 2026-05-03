@@ -4,6 +4,7 @@ import logging
 import requests
 from abc import ABC, abstractmethod
 from typing import Optional
+from urllib.parse import urlparse
 
 from ..types import ScrapedItem, Platform, Product, ScraperConfig
 from ..engine.limiter import RateLimiter
@@ -83,9 +84,10 @@ class BasePlatformScraper(ABC):
         return resp.json()
 
     def _download_file(self, url: str) -> Optional[bytes]:
-        """Download a binary file (image, PDF). Returns bytes or None."""
+        """Download a binary file (image, PDF). Rate-limited by URL domain."""
         try:
-            self.rate_limiter.wait(self.rate_limiter.domain_from_platform(self.platform))
+            domain = urlparse(url).netloc.split(':')[0]  # e.g. "cdn.ifixit.com"
+            self.rate_limiter.wait(domain)
             resp = self.session.get(url, timeout=self.config.request_timeout)
             resp.raise_for_status()
             if len(resp.content) > self.config.max_file_size:

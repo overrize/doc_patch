@@ -6,8 +6,10 @@ total_size_limit: 1073741824
 
 # Rate limiting (requests per second per domain)
 rate_limit:
-  default: 1.0         # Default: 1 request/sec
-  ifixit.com: 1.0
+  default: 1.0
+  ifixit.com: 3.0          # API + search — be polite
+  cdn.ifixit.com: 10.0     # Image CDN — can handle more
+  guide-images.cdn.ifixit.com: 10.0
   samsung.com: 1.0
   apple.com: 1.0
   xiaomi.com: 1.0
