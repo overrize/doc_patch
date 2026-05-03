@@ -157,7 +157,7 @@ class IFixitScraper(BasePlatformScraper):
             for img_obj in image_list:
                 if not isinstance(img_obj, dict):
                     continue
-                image_url = img_obj.get("standard") or img_obj.get("medium") or img_obj.get("large")
+                image_url = img_obj.get("large") or img_obj.get("standard") or img_obj.get("medium")
                 if not image_url:
                     continue
                 step_title = _step_image_title(guide_item.title, step, step_idx)
@@ -169,7 +169,7 @@ class IFixitScraper(BasePlatformScraper):
         # Download in parallel
         from ..engine.parallel import batch_download
         url_list = [u for u, _, _ in image_urls]
-        results = batch_download(url_list, max_workers=12)
+        results = batch_download(url_list, max_workers=20)
 
         # Build ScrapedItems
         images: list[ScrapedItem] = []
